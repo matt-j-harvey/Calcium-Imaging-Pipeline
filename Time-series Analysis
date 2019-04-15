@@ -1,0 +1,207 @@
+from PyQt4.QtCore import *
+from PyQt4.QtGui import *
+import sys
+import numpy as np
+import random
+import networkx as nx
+import community
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib import cm
+
+from os import listdir
+from scipy import stats
+
+sys.path.append(r"C:\Users\matth\OneDrive\Documents\Python Code\Matts Modules")
+import matts_admin_functions
+import matts_network_functions
+import matts_matrix_functions
+
+
+global time_series_matrix
+global correlation_matrix
+
+
+
+
+def load_timeseries():
+    global time_series_matrix
+    activity_file_location = QFileDialog.getOpenFileName(main, "Load Timeseries File")
+    time_series_matrix = np.genfromtxt(str(activity_file_location), delimiter=",", dtype="int")
+    plot_raster(main.raster_figure,main.raster_canvas,time_series_matrix)
+
+    remove_inactive_neurons()
+
+
+
+def plot_raster(figure,canvas,activity_matrix):
+    figure.clear()
+    axis = figure.add_subplot(111)
+    axis.imshow(activity_matrix, cmap='plasma', aspect=50, vmin=0, vmax=1)
+    axis.axis("off")
+    plt.show()
+    canvas.draw()
+    canvas.update()
+
+
+def create_correlation_matrix():
+    global correlation_matrix
+
+    neurons, timepoints = np.shape(time_series_matrix)
+    correlation_matrix = matts_matrix_functions.create_zero_array(neurons)
+
+    for neuron_1 in range(neurons):
+        for neuron_2 in range(neurons):
+            r, t = stats.pearsonr(time_series_matrix[neuron_1],time_series_matrix[neuron_2])
+            correlation_matrix[neuron_1][neuron_2] = r
+
+    np.fill_diagonal(correlation_matrix,0)
+    plot_correlation_matrix(main.correlation_matrix_figure, main.correlation_matrix_canvas,correlation_matrix)
+    plot_correlation_network()
+    save_correlation_matrix()
+
+def save_correlation_matrix():
+    global correlation_matrix
+    save_directory = QFileDialog.getSaveFileName(main, "Save Correlation Matrix")
+    np.savetxt(str(save_directory)+".csv", correlation_matrix, delimiter=",")
+
+def remove_inactive_neurons():
+    global time_series_matrix
+    new_matrix = []
+
+    for neuron in time_series_matrix:
+        if np.sum(neuron) > 0:
+            new_matrix.append(neuron)
+
+    time_series_matrix = new_matrix
+
+
+def plot_correlation_matrix(figure,canvas,activity_matrix):
+
+        #print "correaltion shape", np.shape(activity_matrix)
+
+        figure.clear()
+        axis = figure.add_subplot(111)
+        axis.imshow(activity_matrix, cmap='plasma', vmin=-1,vmax=1)
+        axis.axis("off")
+        plt.show()
+        canvas.draw()
+        canvas.update()
+
+
+def create_canvas_widget(width,height):
+    figure = Figure()
+    canvas = FigureCanvas(figure)
+    widget = QWidget()
+    layout = QGridLayout()
+    widget.setLayout(layout)
+    layout.addWidget(canvas)
+    widget.setFixedSize(width, height)
+    return figure, canvas, widget
+
+
+def plot_correlation_network():
+
+    # correlation_matrix = matts_matrix_functions.threshold_matrix_top_percent(correlation_matrix, 10)
+    correlation_network = matts_network_functions.create_graph(correlation_matrix)
+
+    # Get Raw Total Activites
+    total_activities = []
+    for neuron in time_series_matrix:
+        total_activities.append(np.sum(neuron))
+
+    # Assign Node Colours
+    max_activity = np.max(total_activities)
+    node_colours = []
+    for neuron in total_activities:
+        normalised_activity = float(neuron) / max_activity
+        colour = get_colour(normalised_activity, "plasma", 1)
+        node_colours.append(colour)
+
+    matts_network_functions.default_plot_graph(main.network_figure, main.network_canvas, correlation_network,edge_scaling_factor=2)
+
+def get_colour(input_value,colour_map,scale_factor):
+    input_value = input_value * scale_factor
+    cmap = cm.get_cmap(colour_map)
+    float_tuple = cmap(input_value)
+    matplot_to_q_colour_conversion_factor = 255
+    colour = QColor(float_tuple[0]*matplot_to_q_colour_conversion_factor,
+                          float_tuple[1]*matplot_to_q_colour_conversion_factor,
+                          float_tuple[2]*matplot_to_q_colour_conversion_factor)
+
+    return colour
+
+
+class Window(QDialog):
+
+    def __init__(self, parent=None):
+        super(Window, self).__init__(parent)
+        self.setWindowTitle("Timeseries Analysis Tool")
+        self.showMaximized()
+
+        self.create_main_layout()
+        self.create_raster_tab()
+        self.create_correlation_matrix_tab()
+        self.create_network_tab()
+
+
+    def create_main_layout(self):
+        self.layout = QGridLayout()
+        self.tabs = QTabWidget()
+
+        self.setLayout(self.layout)
+
+        self.load_timeseries_button = QPushButton("Load Timeseries")
+        self.load_timeseries_button.clicked.connect(load_timeseries)
+        self.create_correlation_matrix_button = QPushButton("Create Correlation Matrix")
+        self.create_correlation_matrix_button.clicked.connect(create_correlation_matrix)
+
+        self.layout.addWidget(self.load_timeseries_button,              0, 0, 1, 1)
+        self.layout.addWidget(self.tabs,                                0, 1, 20, 1)
+        self.layout.addWidget(self.create_correlation_matrix_button,    1, 0, 1, 1)
+
+
+    def create_raster_tab(self):
+        self.raster_tab = QWidget()
+        self.raster_tab_layout = QGridLayout()
+        self.raster_tab.setLayout(self.raster_tab_layout)
+        self.tabs.addTab(self.raster_tab, "Raster Plot")
+
+        self.raster_figure,self.raster_canvas,self.raster_widget = create_canvas_widget(1000,1000)
+        self.raster_tab_layout.addWidget(self.raster_widget, 0, 0)
+
+
+    def create_correlation_matrix_tab(self):
+        self.correlation_matrix_tab = QWidget()
+        self.correlation_matrix_tab_layout = QGridLayout()
+        self.correlation_matrix_tab.setLayout(self.correlation_matrix_tab_layout)
+        self.tabs.addTab(self.correlation_matrix_tab, "Correlation Matrix")
+
+        self.correlation_matrix_figure, self.correlation_matrix_canvas, self.correlation_matrix_widget = create_canvas_widget(1000,1000)
+        self.correlation_matrix_tab_layout.addWidget(self.correlation_matrix_widget, 0, 0)
+
+
+    def create_network_tab(self):
+        self.network_tab = QWidget()
+        self.network_tab_layout = QGridLayout()
+        self.network_tab.setLayout(self.network_tab_layout)
+        self.tabs.addTab(self.network_tab,"Correlation Network")
+
+        self.network_figure, self.network_canvas, self.network_widget = create_canvas_widget(1000, 1000)
+        self.network_tab_layout.addWidget(self.network_widget, 0 ,0)
+
+
+
+
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+
+    main = Window()
+    main.show()
+
+    sys.exit(app.exec_())
