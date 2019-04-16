@@ -1,0 +1,596 @@
+from PyQt4.QtCore import *
+from PyQt4.QtGui import *
+import sys
+import numpy as np
+import random
+import networkx as nx
+import community
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib import cm
+
+from os import listdir
+from scipy import stats
+
+sys.path.append(r"C:\Users\matth\OneDrive\Documents\Python Code\Matts Modules")
+import matts_admin_functions
+import matts_network_functions
+import matts_matrix_functions
+global time_series_matrix
+
+#Condition Variables
+number_of_conditions = 0
+condition_names = []
+condition_sizes = []
+
+connection_matricies = []
+graph_list = []
+graph_theory_analysis = []
+
+#Display Widgets
+graph_display_widgets = []
+
+
+#Matrix Creation Variables
+threshold_matrix    = True
+scale_matricies     = True
+is_symmetrical      = True
+weight_percentage_threshold = 100
+
+
+class Window(QDialog):
+
+    def __init__(self, parent=None):
+        super(Window, self).__init__(parent)
+        self.setWindowTitle("Network Analysis Tool")
+        self.showMaximized()
+
+        self.create_main_layout()
+        self.create_network_display_tab()
+        self.create_graph_theroy_tab()
+        self.create_cluster_display_tab()
+        self.create_cluster_analysis_tab()
+
+    def create_main_layout(self):
+
+        self.main_layout = QGridLayout()
+        self.tabs = QTabWidget()
+
+        #Load Matrix Controls
+        self.load_condition_button = QPushButton("Load Matricies")
+        self.load_condition_button.clicked.connect(load_condition)
+        self.condition_name_field = QLineEdit("Condition")
+        self.condition_name_field.setFixedWidth(100)
+
+        #Threshold Matrix Checkbox
+        self.threshold_checkbox = QCheckBox()
+        self.threshold_checkbox_label = QLabel("Threshold Matrix")
+        self.threshold_checkbox.setChecked(True)
+        self.threshold_checkbox.stateChanged.connect(self.threshold_checkbox_checked)
+        self.threshold_inputbox = QLineEdit("100")
+        self.threshold_inputbox.setFixedWidth(75)
+        self.threshold_inputbox.textChanged.connect(self.threshold_checkbox_checked)
+
+        #Symmetrical Matrix Checkbox
+        self.symmetrical_matrix_checkbox = QCheckBox()
+        self.symmetrical_matrix_checkbox_label = QLabel("Matrix Is Symmetrical")
+        self.symmetrical_matrix_checkbox.setChecked(True)
+        self.symmetrical_matrix_checkbox.stateChanged.connect(self.symmetrical_checkbox_checked)
+
+        #Scale Matrix Checkbox
+        self.scale_matrix_checkbox = QCheckBox()
+        self.scale_matrix_checkbox_label = QLabel("Scale Matrix")
+        self.scale_matrix_checkbox.setChecked(True)
+        self.scale_matrix_checkbox.stateChanged.connect(self.scale_checkbox_checked)
+
+        #Analyse Networks Button
+        self.analyse_networks_button = QPushButton("Analyse Networks")
+        self.analyse_networks_button.clicked.connect(analyse_networks)
+
+        #Analyse Clusters Button
+        self.analyse_clusters_button = QPushButton("Analyse Clusters")
+        self.analyse_clusters_button.clicked.connect(analyse_clusters)
+
+        #Add Widgets To Layout
+        self.main_layout.addWidget(self.tabs,                               00, 03, 20, 01)
+        self.main_layout.addWidget(self.load_condition_button,              00, 00, 01, 01)
+        self.main_layout.addWidget(self.condition_name_field,               00, 01, 01, 02)
+        self.main_layout.addWidget(self.threshold_checkbox_label,           01, 00, 01, 01)
+        self.main_layout.addWidget(self.threshold_checkbox,                 01, 01, 01, 01)
+        self.main_layout.addWidget(self.threshold_inputbox,                 01, 02, 01, 01)
+        self.main_layout.addWidget(self.symmetrical_matrix_checkbox_label,  02, 00, 01, 01)
+        self.main_layout.addWidget(self.symmetrical_matrix_checkbox,        02, 01, 01, 01)
+        self.main_layout.addWidget(self.scale_matrix_checkbox_label,        03, 00, 01, 01)
+        self.main_layout.addWidget(self.scale_matrix_checkbox,              03, 01, 01, 01)
+        self.main_layout.addWidget(self.analyse_networks_button,            04, 00, 01, 03)
+        self.main_layout.addWidget(self.analyse_clusters_button,            05, 00, 01, 03)
+
+        self.setLayout(self.main_layout)
+
+
+    def create_network_display_tab(self):
+        self.network_display_tab = QWidget()
+        self.network_display_tab_layout = QGridLayout()
+        self.network_display_tab.setLayout(self.network_display_tab_layout)
+
+        self.scroll_area_contents = QWidget()
+        self.scroll_area_contents_layout = QGridLayout()
+        self.scroll_area_contents_layout.setContentsMargins(0, 0, 0, 0)
+        self.scroll_area_contents.setLayout(self.scroll_area_contents_layout)
+
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidget(self.scroll_area_contents)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.scroll_area.setWidgetResizable(True)
+        self.network_display_tab_layout.addWidget(self.scroll_area)
+
+        self.tabs.addTab(self.network_display_tab, "Network Displays")
+
+
+    def create_graph_theroy_tab(self):
+        self.statistics_tab = QWidget()
+        self.statistics_tab_layout = QGridLayout()
+        self.statistics_tab.setLayout(self.statistics_tab_layout)
+        self.tabs.addTab(self.statistics_tab, "Graph Theory Statistics")
+
+        self.stats_scroll_area_contents = QWidget()
+        self.stats_scroll_area_contents_layout = QGridLayout()
+        self.stats_scroll_area_contents.setLayout(self.stats_scroll_area_contents_layout)
+
+        self.stats_scroll_area = QScrollArea()
+        self.stats_scroll_area.setWidget(self.stats_scroll_area_contents)
+        self.stats_scroll_area.setWidgetResizable(True)
+        self.statistics_tab_layout.addWidget(self.stats_scroll_area)
+
+
+    def create_cluster_display_tab(self):
+        self.clustering_display_tab = QWidget()
+        self.clustering_display_tab_layout = QGridLayout()
+        self.clustering_display_tab.setLayout(self.clustering_display_tab_layout)
+        self.tabs.addTab(self.clustering_display_tab, "Clustering Display")
+
+        self.clustering_scroll_area_contents = QWidget()
+        self.clustering_scroll_area_contents_layout = QGridLayout()
+        self.clustering_scroll_area_contents.setLayout(self.clustering_scroll_area_contents_layout)
+
+        self.clustering_scroll_area = QScrollArea()
+        self.clustering_scroll_area.setWidget(self.clustering_scroll_area_contents)
+        self.clustering_scroll_area.setWidgetResizable(True)
+        self.clustering_display_tab_layout.addWidget(self.clustering_scroll_area)
+
+
+    def create_cluster_analysis_tab(self):
+        self.clustering_analysis_tab = QWidget()
+        self.clustering_analysis_tab_layout = QGridLayout()
+        self.clustering_analysis_tab.setLayout(self.clustering_analysis_tab_layout)
+        self.tabs.addTab(self.clustering_analysis_tab, "Clustering Analysis")
+
+        self.clustering_analysis_scroll_area_contents = QWidget()
+        self.clustering_analysis_scroll_area_contents_layout = QGridLayout()
+        self.clustering_analysis_scroll_area_contents.setLayout(self.clustering_analysis_scroll_area_contents_layout)
+
+        self.clustering_analysis_scroll_area = QScrollArea()
+        self.clustering_analysis_scroll_area.setWidget(self.clustering_analysis_scroll_area_contents)
+        self.clustering_analysis_tab_layout.addWidget(self.clustering_analysis_scroll_area)
+        self.clustering_analysis_scroll_area.setWidgetResizable(True)
+
+    def threshold_checkbox_checked(self):
+        global threshold_matrix
+        global weight_percentage_threshold
+
+        state = self.threshold_checkbox.isChecked()
+        try:
+            weight_percentage_threshold = float(main.threshold_inputbox.text())
+        except:
+            pass
+        threshold_matrix = state
+
+    def scale_checkbox_checked(self):
+        global scale_matricies
+        state = self.scale_matrix_checkbox.isChecked()
+        scale_matricies = state
+
+    def symmetrical_checkbox_checked(self):
+        global is_symmetrical
+        state = self.symmetrical_matrix_checkbox.isChecked()
+        is_symmetrical = state
+
+
+def get_colour(input_value,colour_map,scale_factor):
+    input_value = input_value * scale_factor
+    cmap = cm.get_cmap(colour_map)
+    float_tuple = cmap(input_value)
+    matplot_to_q_colour_conversion_factor = 255
+    colour = QColor(float_tuple[0]*matplot_to_q_colour_conversion_factor,
+                          float_tuple[1]*matplot_to_q_colour_conversion_factor,
+                          float_tuple[2]*matplot_to_q_colour_conversion_factor)
+
+    return colour
+
+#Functions To Load Files
+def load_condition():
+    global number_of_conditions
+    number_of_conditions += 1
+    condition_name = main.condition_name_field.text()
+    condition_names.append(condition_name)
+
+    load_files()
+
+    #Display Networks
+    brain_networks_layout = create_graph_layout(number_of_conditions - 1)
+    main.scroll_area_contents_layout.addLayout(brain_networks_layout, number_of_conditions - 1, 2, 1, 1)
+
+def load_files():
+    #Get The File Directory
+    condition_directory = QFileDialog.getExistingDirectory(main,"Open a folder")
+    condition_directory = str(condition_directory)
+
+    #Load The Files
+    files = listdir(condition_directory)
+    condition_sizes.append(len(files))
+
+    #Create The Matricies
+    condition_connectivity_matricies = []
+
+    for file in files:
+        connectivity_matrix = load_connectivity_matrix(condition_directory, file)
+        condition_connectivity_matricies.append(connectivity_matrix)
+        connection_matricies.append(condition_connectivity_matricies)
+
+def load_connectivity_matrix(directory,file):
+
+    connectivity_matrix_location = directory + "\\" + file
+
+    #Load Raw Data From CSV File
+    raw_data = np.genfromtxt(connectivity_matrix_location, delimiter=",", dtype="float")
+
+    #Turn Raw Data Into Connectivity Matrix
+    connectivity_matrix,matrix_size = turn_raw_data_into_connectivity_matrix(raw_data)
+
+    # Zero diagonalise it
+    np.fill_diagonal(connectivity_matrix, 0)
+
+    # Transform from Upper Triangular to Symmetrical
+    if is_symmetrical == True:
+        connectivity_matrix = matts_matrix_functions.upper_triangle_to_symmetrical_matrix(connectivity_matrix)
+
+    # Threshold Connectivity Matrix
+    if threshold_matrix == True:
+        connectivity_matrix = matts_matrix_functions.threshold_matrix_top_percent(connectivity_matrix,weight_percentage_threshold)
+
+    #Scale Connectivity Matricies
+    if scale_matricies == True:
+        connectivity_matrix = matts_matrix_functions.scale_matrix(connectivity_matrix,100)
+
+    return connectivity_matrix
+def turn_raw_data_into_connectivity_matrix(raw_data):
+
+    cleaned_all_lists = []
+    for individual_list in raw_data:
+        cleaned_list = matts_admin_functions.split_list_by_spaces(individual_list)
+        cleaned_all_lists.append(cleaned_list)
+
+    connectivity_matrix = np.array(cleaned_all_lists)
+    x_size, y_size = np.shape(connectivity_matrix)
+
+    return connectivity_matrix, x_size
+
+#Create Graph Display Layout
+def create_graph_layout(condition):
+
+    layout = QGridLayout()
+    row_length = 3
+    number_of_graph_displays = condition_sizes[condition]
+    graph_display_widgets.append(matts_admin_functions.create_empty_list(number_of_graph_displays))
+    graph_list.append(matts_admin_functions.create_empty_list(number_of_graph_displays))
+    figures = matts_admin_functions.create_empty_list(number_of_graph_displays)
+    canvases = matts_admin_functions.create_empty_list(number_of_graph_displays)
+
+    condition_name = condition_names[condition]
+    condition_name_label = QLabel(condition_name)
+    layout.addWidget(condition_name_label, 0, 0, 1, condition_sizes[condition])
+
+    graph_theory_analysis.append([])
+
+    for graph_display in range(number_of_graph_displays):
+
+        #Ceeate Graph
+        graph_list[condition][graph_display] = matts_network_functions.create_graph(connection_matricies[condition][graph_display])
+
+        #Plot Network
+        figures[graph_display] = Figure()
+        canvases[graph_display] = FigureCanvas(figures[graph_display])
+        matts_network_functions.default_plot_graph(figures[graph_display],canvases[graph_display],graph_list[condition][graph_display],edge_scaling_factor=10)
+
+        #Create Individual Graph Layout
+        graph_display_widgets[condition][graph_display] = QGridLayout()
+        graph_display_widgets[condition][graph_display].addWidget(canvases[graph_display], 0, 0)
+        individual_widget = QWidget()
+        individual_widget.setLayout(graph_display_widgets[condition][graph_display])
+        individual_widget.setFixedSize(800,800)
+
+        #Add individual layout to combined layout
+        row_index = int(graph_display / row_length)
+        column_index = graph_display - (row_index * row_length)
+        layout.addWidget(individual_widget, row_index + 1, column_index)
+
+        #main.progress_bar.setValue((float(graph_display+1)/number_of_graph_displays)*100)
+        app.processEvents()
+
+    return layout
+
+#Perform Graph Theory Analysis
+def analyse_networks():
+
+    total_number_of_graphs_to_analyse = sum(condition_sizes)
+
+    counter = 0
+    for condition in range(number_of_conditions):
+        number_of_graph_displays = condition_sizes[condition]
+
+        for graph_display in range(number_of_graph_displays):
+            graph_theory_measures = analyse_graph(graph_list[condition][graph_display])
+            graph_theory_analysis[condition].append(graph_theory_measures)
+
+    print graph_theory_analysis
+    plot_graph_theroy_statistics()
+
+def analyse_graph(graph):
+    graph_measures = []
+
+    centrality = matts_network_functions.average_eigenvector_centrailtiy(graph)
+    graph_measures.append(["Centraility",centrality])
+
+    shortest_path_length = matts_network_functions.get_average_shortest_path_length(graph)
+    graph_measures.append(["Shortest Path",shortest_path_length])
+
+    clustering_coefficient = np.around(nx.average_clustering(graph,weight="weight"), 6)
+    graph_measures.append(["Clustering Coefficient", clustering_coefficient])
+
+    average_degree = matts_network_functions.get_average_degree(graph)
+    graph_measures.append(["Average Degree",average_degree])
+
+    degree_variance = matts_network_functions.get_degree_variability(graph)
+    graph_measures.append((["Degree Variance",degree_variance]))
+
+    small_world_index = matts_network_functions.get_small_world_index(graph)
+    graph_measures.append((["Small World Index",small_world_index]))
+
+    return graph_measures
+
+
+def plot_graph_theroy_statistics():
+
+    centrality              = matts_admin_functions.create_empty_list(number_of_conditions)
+    shortest_path_length    = matts_admin_functions.create_empty_list(number_of_conditions)
+    clustering_coefficient  = matts_admin_functions.create_empty_list(number_of_conditions)
+    average_degree          = matts_admin_functions.create_empty_list(number_of_conditions)
+    degree_variance         = matts_admin_functions.create_empty_list(number_of_conditions)
+    small_world_index       = matts_admin_functions.create_empty_list(number_of_conditions)
+
+    for condition in range(number_of_conditions):
+       for individual in range(condition_sizes[condition]):
+           centrality               [condition].append(graph_theory_analysis[condition][individual][0][1])
+           shortest_path_length     [condition].append(graph_theory_analysis[condition][individual][1][1])
+           clustering_coefficient   [condition].append(graph_theory_analysis[condition][individual][2][1])
+           average_degree           [condition].append(graph_theory_analysis[condition][individual][3][1])
+           degree_variance          [condition].append(graph_theory_analysis[condition][individual][4][1])
+           small_world_index        [condition].append(graph_theory_analysis[condition][individual][5][1])
+
+
+    print "centrality prior to data frame", centrality
+    centrality_data_frame               = create_pandas_dataframe(centrality)
+    shortest_path_length_data_frame     = create_pandas_dataframe(shortest_path_length)
+    clustering_coefficient_data_frame   = create_pandas_dataframe(clustering_coefficient)
+    average_degree_data_frame           = create_pandas_dataframe(average_degree)
+    degree_variance_data_frame          = create_pandas_dataframe(degree_variance)
+    small_world_index_data_frame        = create_pandas_dataframe(small_world_index)
+
+    centrality_figure,              centrality_canvas,              centrality_widget               = create_canvas_widget(400,800)
+    shortest_path_length_figure,    shortest_path_length_canvas,    shortest_path_length_widget     = create_canvas_widget(400,800)
+    clustering_coefficient_figure,  clustering_coefficient_canvas,  clustering_coefficient_widget   = create_canvas_widget(400,800)
+    average_degree_figure ,         average_degree_canvas,          average_degree_widget           = create_canvas_widget(400,800)
+    degree_variance_figure,         degree_variance_canvas,         degree_variance_widget          = create_canvas_widget(400,800)
+    small_world_index_figure,       small_world_index_canvas,       small_world_index_widget        = create_canvas_widget(400,800)
+
+    create_swarm_plot(centrality_figure,                centrality_canvas,              centrality_data_frame,              "Eigenvector Centrality")
+    create_swarm_plot(shortest_path_length_figure,      shortest_path_length_canvas,    shortest_path_length_data_frame,    "Shortest Path Length")
+    create_swarm_plot(clustering_coefficient_figure,    clustering_coefficient_canvas,  clustering_coefficient_data_frame,  "Clustering Coefficient")
+    create_swarm_plot(average_degree_figure,            average_degree_canvas,          average_degree_data_frame,          "Average Degree")
+    create_swarm_plot(degree_variance_figure,           degree_variance_canvas,         degree_variance_data_frame,         "Degree Variance")
+    create_swarm_plot(small_world_index_figure,         small_world_index_canvas,       small_world_index_data_frame,       "Small World Index")
+
+    centrality_label                = create_analysis_label(centrality)
+    shortest_path_length_label      = create_analysis_label(shortest_path_length)
+    clustering_coefficient_label    = create_analysis_label(clustering_coefficient)
+    average_degree_label            = create_analysis_label(average_degree)
+    degree_variance_label           = create_analysis_label(degree_variance)
+    small_world_index_label         = create_analysis_label(small_world_index)
+
+    main.stats_scroll_area_contents_layout.addWidget(centrality_widget,             0, 0)
+    main.stats_scroll_area_contents_layout.addWidget(shortest_path_length_widget,   1, 0)
+    main.stats_scroll_area_contents_layout.addWidget(clustering_coefficient_widget, 2, 0)
+    main.stats_scroll_area_contents_layout.addWidget(average_degree_widget,         3, 0)
+    main.stats_scroll_area_contents_layout.addWidget(degree_variance_widget,        4, 0)
+    main.stats_scroll_area_contents_layout.addWidget(small_world_index_widget,      5, 0)
+
+    main.stats_scroll_area_contents_layout.addWidget(centrality_label,              0, 1)
+    main.stats_scroll_area_contents_layout.addWidget(shortest_path_length_label,    1, 1)
+    main.stats_scroll_area_contents_layout.addWidget(clustering_coefficient_label,  2, 1)
+    main.stats_scroll_area_contents_layout.addWidget(average_degree_label,          3, 1)
+    main.stats_scroll_area_contents_layout.addWidget(degree_variance_label,         4, 1)
+    main.stats_scroll_area_contents_layout.addWidget(small_world_index_label,       5, 1)
+
+
+def create_analysis_label(data):
+    normality = []
+    means = []
+    standard_deviations = []
+
+    for group in data:
+        means.append(np.around(np.mean(group),4))
+
+        try:
+            stat, p = stats.shapiro(group)
+        except:
+            p = 1
+
+        normality.append(np.around(p,4))
+        standard_deviations.append(np.around(np.std(group),4))
+
+    widget = QWidget()
+    widget_layout = QGridLayout()
+    widget.setLayout(widget_layout)
+    widget.setFixedSize(500,500)
+
+    for group in range(len(data)):
+        condition_label             = QLabel("Condition: "              + str(condition_names[group]))
+        mean_label                  = QLabel("Mean: "                   + str(means[group]))
+        standard_deviation_label    = QLabel("Standard Deviation: "     + str(standard_deviations[group]))
+        normality_label             = QLabel("Shapiro Wilks P Value"    + str(normality[group]))
+
+        widget_layout.addWidget(condition_label,            0,group)
+        widget_layout.addWidget(mean_label,                 1,group)
+        widget_layout.addWidget(standard_deviation_label,   2,group)
+        widget_layout.addWidget(normality_label,            3,group)
+
+    if number_of_conditions > 1:
+        ind_t_stat, ind_p_value = stats.ttest_ind(data[0],data[1])
+        man_t_stat, man_p_value = stats.mannwhitneyu(data[0], data[1])
+
+    else:
+        ind_p_value = 1
+        man_p_value = 1
+
+    ind_p_label = QLabel("Independent T-Test p Value = " + str(ind_p_value))
+    man_p_label = QLabel("Man Whitney U-Test p Value = " + str(man_p_value))
+    widget_layout.addWidget(ind_p_label, 4,0)
+    widget_layout.addWidget(man_p_label, 5, 0)
+
+    return widget
+
+
+def create_canvas_widget(width,height):
+    figure = Figure()
+    canvas = FigureCanvas(figure)
+    widget = QWidget()
+    layout = QGridLayout()
+    widget.setLayout(layout)
+    layout.addWidget(canvas)
+    widget.setFixedSize(width, height)
+    return figure, canvas, widget
+
+
+def create_pandas_dataframe(data):
+
+    if number_of_conditions == 1:
+        frame = {
+            str(condition_names[0]): pd.Series(data[0], index=list(range(condition_sizes[0])))}
+
+    if number_of_conditions == 2:
+        frame = {
+            str(condition_names[0]): pd.Series(data[0], index=list(range(condition_sizes[0]))),
+            str(condition_names[1]): pd.Series(data[1], index=list(range(condition_sizes[1])))}
+
+    data_frame = pd.DataFrame(frame)
+
+    return data_frame
+
+
+def create_swarm_plot(figure,canvas,data_frame,title):
+
+    figure.clear()
+    axis = figure.add_subplot(111)
+    axis.set_title(title)
+    # Construct iris plot
+    sns.set()
+    sns.set_style("white")
+    sns.swarmplot(data=data_frame,ax=axis)
+    canvas.draw()
+    canvas.update()
+
+
+def analyse_clusters():
+
+    for condition in range(number_of_conditions):
+        cluster_layout = create_cluster_graph_layout(condition)
+        main.clustering_scroll_area_contents_layout.addLayout(cluster_layout, condition,0)
+
+    create_cluster_analysis_layout()
+
+def create_cluster_graph_layout(condition):
+    layout = QGridLayout()
+    row_length = 3
+    number_of_graph_displays = condition_sizes[condition]
+    condition_name = condition_names[condition]
+    condition_name_label = QLabel(condition_name)
+    layout.addWidget(condition_name_label, 0, 0, 1, condition_sizes[condition])
+
+    for graph_display in range(number_of_graph_displays):
+        graph = graph_list[condition][graph_display]
+        node_colours = matts_network_functions.louvain_partition_graph(graph)
+        figure,canvas,widget = create_canvas_widget(800,800)
+        matts_network_functions.default_plot_graph(figure,canvas,graph,node_colours=node_colours,edge_scaling_factor=10)
+
+        row_index = int(graph_display / row_length)
+        column_index = graph_display - (row_index * row_length)
+        layout.addWidget(widget, row_index + 1, column_index)
+
+    return layout
+
+
+def create_cluster_analysis_layout():
+
+    number_of_clusters          = matts_admin_functions.create_empty_list(number_of_conditions)
+    within_cluster_strength     = matts_admin_functions.create_empty_list(number_of_conditions)
+    between_cluster_strength    = matts_admin_functions.create_empty_list(number_of_conditions)
+
+    for condition in range(number_of_conditions):
+        for participant in range(condition_sizes[condition]):
+            graph = graph_list[condition][participant]
+            number, subgraph_node_lists, within_strength, cluster_matrix = matts_network_functions.perform_cluster_analysis(graph)
+            number_of_clusters[condition].append(number)
+            within_cluster_strength[condition].append(np.mean(within_strength))
+            between_cluster_strength[condition].append(np.mean(cluster_matrix))
+
+    number_figure,  number_canvas,  number_widget   = create_canvas_widget(500, 800)
+    within_figure,  within_canvas,  within_widget   = create_canvas_widget(500, 800)
+    between_figure, between_canvas, between_widget  = create_canvas_widget(500, 800)
+
+    print between_cluster_strength
+
+    number_data_frame   = create_pandas_dataframe(number_of_clusters)
+    within_data_frame   = create_pandas_dataframe(within_cluster_strength)
+    between_data_frame  = create_pandas_dataframe(between_cluster_strength)
+
+    create_swarm_plot(number_figure,    number_canvas,  number_data_frame,  "Number of Clusters")
+    create_swarm_plot(within_figure,    within_canvas,  within_data_frame,  "Within Cluster Strength")
+    create_swarm_plot(between_figure,   between_canvas, between_data_frame, "Between Cluster Strength")
+
+    number_analysis_label   = create_analysis_label(number_of_clusters)
+    within_analysis_label   = create_analysis_label(within_cluster_strength)
+    between_analysis_label  = create_analysis_label(between_cluster_strength)
+
+    main.clustering_analysis_scroll_area_contents_layout.addWidget(number_widget,   0, 0)
+    main.clustering_analysis_scroll_area_contents_layout.addWidget(within_widget,   1, 0)
+    main.clustering_analysis_scroll_area_contents_layout.addWidget(between_widget,  2, 0)
+
+    main.clustering_analysis_scroll_area_contents_layout.addWidget(number_analysis_label,   0, 1)
+    main.clustering_analysis_scroll_area_contents_layout.addWidget(within_analysis_label,   1, 1)
+    main.clustering_analysis_scroll_area_contents_layout.addWidget(between_analysis_label,  2, 1)
+
+
+
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+
+    main = Window()
+    main.show()#
+
+
+    sys.exit(app.exec_())
