@@ -1,0 +1,160 @@
+from PyQt4.QtCore import *
+from PyQt4.QtGui import *
+import sys
+import numpy as np
+import random
+import networkx as nx
+import community
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib import cm
+import matplotlib.pyplot as plt
+from matplotlib.path import Path
+from matplotlib.widgets import LassoSelector
+import numpy as np
+from skimage.data import coins
+from os import listdir
+from scipy import stats
+from time import sleep
+
+sys.path.append(r"C:\Users\matth\OneDrive\Documents\Python Code\Matts Modules")
+import matts_admin_functions
+import matts_network_functions
+import matts_matrix_functions
+
+fish_name = r"\\Fish_1_full_brain"
+coordinates_file_location       = r"F:\\"#r"F:\\Zebrafish 2 Photon\\Active ROI Coordinates"
+activity_file_location          = r"F:\\"#r"F:\\Zebrafish 2 Photon\\Binary Matricies"
+
+global neuron_coordinates
+global activity_matrix
+global number_of_neurons
+global number_of_timepoints
+global roi_elipses
+global total_activities
+
+
+class Window(QDialog):
+
+    def __init__(self, parent=None):
+        super(Window, self).__init__(parent)
+        self.setWindowTitle("Activity Visualiser")
+        self.setGeometry(100,100,1500,700)
+
+        self.create_main_layout()
+
+    def create_main_layout(self):
+        self.layout = QGridLayout()
+        self.setLayout(self.layout)
+
+        self.graphics_view = QGraphicsView()
+        self.graphics_view.setMaximumWidth(800)
+        self.graphics_view.setMaximumHeight(800)
+
+        self.layout.addWidget(self.graphics_view,   00, 00, 01, 01)
+
+
+def load_data():
+    global activity_matrix
+    global neuron_coordinates
+    global number_of_neurons
+    global number_of_timepoints
+
+    neuron_coordinates  = np.genfromtxt(coordinates_file_location + "active_rois.csv",  delimiter=",",  dtype="int")
+    activity_matrix     = np.genfromtxt(activity_file_location + "binary_matrix.csv",     delimiter=",",  dtype="int")
+    activity_matrix = np.delete(activity_matrix, (0), axis=0)
+
+
+    number_of_neurons, number_of_timepoints = np.shape(activity_matrix)
+    print "Number of neurons: ", number_of_neurons
+    print "Number of timepoints: ", number_of_timepoints
+
+    print "shape coords: ", np.shape(neuron_coordinates)
+
+
+def get_total_activity():
+    global total_activities
+    total_activities = []
+
+    for neuron in range(number_of_neurons):
+        total_activity = np.sum(activity_matrix[neuron][0:2880])
+        if total_activity >= 2880:
+            print neuron + "active more than 50$ of the time"
+
+def draw_base_scene():
+    global roi_elipses
+    scene = QGraphicsScene(0,0,1000,1000)
+    roi_size = 10
+    roi_elipses = matts_admin_functions.create_empty_list(number_of_neurons)
+
+
+    scale_factor = 2
+    y_offset = 10
+    x_offset = 10
+
+    for roi_index in range(number_of_neurons):
+        x_cord = neuron_coordinates[roi_index][1]
+        y_cord = neuron_coordinates[roi_index][0]
+
+        colour = get_colour(0,"plasma",0.8)
+
+        roi_elipses[roi_index] = QGraphicsEllipseItem(0, 0, roi_size, roi_size)
+        roi_elipses[roi_index].setPos(int(x_cord * scale_factor) + x_offset, int(y_cord * scale_factor) + y_offset)
+        roi_elipses[roi_index].setBrush(QBrush(colour))
+        roi_elipses[roi_index].setOpacity(0.2)
+
+        scene.addItem(roi_elipses[roi_index])
+
+    #scene.setSceneRect(0, 0, 100, 100)
+    main.graphics_view.setScene(scene)
+
+
+def get_colour(input_value,colour_map,scale_factor):
+    input_value = input_value * scale_factor
+    cmap = cm.get_cmap(colour_map)
+    float_tuple = cmap(input_value)
+    matplot_to_q_colour_conversion_factor = 255
+    colour = QColor(float_tuple[0]*matplot_to_q_colour_conversion_factor,
+                          float_tuple[1]*matplot_to_q_colour_conversion_factor,
+                          float_tuple[2]*matplot_to_q_colour_conversion_factor)
+
+    return colour
+
+
+def run_visualisation():
+    global roi_elipses
+
+    for timepoint in range(number_of_timepoints):
+        for neuron in range(number_of_neurons):
+            activity = activity_matrix[neuron][timepoint]
+            colour = get_colour(activity,"plasma",0.8)
+            roi_elipses[neuron].setBrush(QBrush(colour))
+
+            if activity == 1:
+                roi_elipses[neuron].setOpacity(1)
+            else:
+                roi_elipses[neuron].setOpacity(0.1)
+
+        #sleep(0.20)
+        app.processEvents()
+
+    print "Finoished"
+
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+
+    main = Window()
+    main.show()
+
+    load_data()
+    get_total_activity()
+    draw_base_scene()
+
+    run_visualisation()
+
+    sys.exit(app.exec_())
