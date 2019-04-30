@@ -1,0 +1,244 @@
+from PyQt4.QtCore import *
+from PyQt4.QtGui import *
+import sys
+import numpy as np
+import random
+import networkx as nx
+import community
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib import cm
+import matplotlib.pyplot as plt
+from matplotlib.path import Path
+from matplotlib.widgets import LassoSelector
+import numpy as np
+from skimage.data import coins
+from os import listdir
+from scipy import stats
+from time import sleep
+
+sys.path.append(r"C:\Users\matth\OneDrive\Documents\Python Code\Matts Modules")
+import matts_admin_functions
+import matts_network_functions
+import matts_matrix_functions
+import extract_ensembles
+
+
+doms_ensemble_data = r"F:\\bayes_190313_wt_F2\\"
+
+matts_ensemble_data = r"F:\\800 Test Ensemble Data\\"
+
+coordinates_file_location = r"F:\\1700 Tectum\\active_rois_1700_tectum.csv"
+ensemble_data_folder = r"F:\\1700 Tectum\\"
+
+
+
+global neuron_coordinates
+global activity_matrix
+global number_of_neurons
+global number_of_timepoints
+global roi_elipses
+global total_activities
+global number_of_neurons
+global number_of_ensembles
+
+roi_elipses = []
+
+class Window(QDialog):
+
+    def __init__(self, parent=None):
+        super(Window, self).__init__(parent)
+        self.setWindowTitle("Ensemble Viewer")
+        self.setGeometry(100,100,1500,700)
+
+        self.create_main_layout()
+
+    def create_main_layout(self):
+        self.layout = QGridLayout()
+        self.setLayout(self.layout)
+
+        self.graphics_view = QGraphicsView()
+        #self.graphics_view.setMaximumWidth(800)
+        #self.graphics_view.setMaximumHeight(800)
+
+        self.ensemble_combobox = QComboBox()
+        self.ensemble_combobox.currentIndexChanged.connect(self.change_ensemble)
+
+        self.layout.addWidget(self.graphics_view,       00, 00, 15, 10)
+        self.layout.addWidget(self.ensemble_combobox,   00, 10, 01, 01)
+
+
+
+
+    def change_ensemble(self):
+        global roi_elipses
+        selected_ensemble = main.ensemble_combobox.currentText()
+
+        if selected_ensemble != "NA":
+            selected_ensemble = int(selected_ensemble)
+
+        for roi_index in range(number_of_neurons):
+
+            current_ensemble = thresholded_allocations[roi_index]
+
+            if current_ensemble == selected_ensemble:
+
+                if selected_ensemble == "NA":
+                    colour = get_colour(1, "hsv", 1)
+                else:
+                    colour = get_colour(float(selected_ensemble) / number_of_ensembles, "hsv", 1)
+
+                opacity = 1
+
+            else:
+                colour = get_colour(0, "plasma", 0.8)
+                opacity = 0.2
+
+            roi_elipses[roi_index].setOpacity(opacity)
+            roi_elipses[roi_index].setBrush(QBrush(colour))
+
+
+
+def load_data():
+    global activity_matrix
+    global neuron_coordinates
+    global number_of_neurons
+    global number_of_timepoints
+    global thresholded_allocations
+    global number_of_ensembles
+
+    neuron_coordinates  = np.genfromtxt(coordinates_file_location,  delimiter=",",  dtype="int")
+   # neuron_coordinates = np.load(coordinates_file_location)
+    number_of_neurons, dimensions = np.shape(neuron_coordinates)
+
+    #activity_matrix     = np.genfromtxt(activity_file_location + "binary_matrix.csv",     delimiter=",",  dtype="int")
+    #activity_matrix = np.delete(activity_matrix, (0), axis=0)
+    #matts_data = "F:\\Test Membership Trajectories"
+    #matts_selection = "F:\\Selection_data.csv"
+
+    ensemble_data = extract_ensembles.extract_ensembles(ensemble_data_folder + "membership_traj.dat" , ensemble_data_folder + "selection.dat" ,number_of_neurons)
+
+    thresholded_allocations     = ensemble_data["thresholded allocations"]
+    number_of_ensembles         = ensemble_data["number_of_ensembles"]
+    number_of_allocated_neurons = ensemble_data["number of allocated neurons"]
+    number_size_dict            = ensemble_data["ensemble number and sizes"]
+    number_of_free_neurons      = number_of_neurons - number_of_allocated_neurons
+
+
+    text = "Ensemble Sizes: "
+
+    for ensemble in number_size_dict.keys():
+        size = number_size_dict[ensemble]
+        text = text + str(ensemble) + ":" + str(size) + "\n"
+
+        main.ensemble_combobox.addItem(str(ensemble))
+
+    number_of_neurons_label      = QLabel("Number of Neurons: " + str(number_of_neurons))
+    number_of_ensembles_label    = QLabel("Number of Ensembles: " + str(number_of_ensembles))
+    number_of_free_neurons_label = QLabel("Number of Free Neurons: " + str(number_of_free_neurons))
+    ensemble_sizes_label         = QLabel(text)
+
+    main.layout.addWidget(number_of_neurons_label,      1, 10, 1, 1)
+    main.layout.addWidget(number_of_ensembles_label,    2, 10, 1, 1)
+    main.layout.addWidget(number_of_free_neurons_label, 3, 10, 1, 1)
+    #main.layout.addWidget(ensemble_sizes_label,         4, 10, 10, 1)
+
+
+
+
+
+
+def get_total_activity():
+    global total_activities
+    total_activities = []
+
+    for neuron in range(number_of_neurons):
+        total_activities.append(np.sum(activity_matrix[neuron]))
+
+    max_activity = np.max(total_activities)
+
+    for neuron in range(number_of_neurons):
+        total_activities[neuron] = float(total_activities[neuron])/max_activity
+
+
+def draw_base_scene():
+    global roi_elipses
+    scene = QGraphicsScene(0,0,1000,1000)
+    roi_size = 10
+    roi_elipses = matts_admin_functions.create_empty_list(number_of_neurons)
+
+
+    scale_factor = 1
+    y_offset = 10
+    x_offset = 10
+
+    for roi_index in range(number_of_neurons):
+        x_cord = neuron_coordinates[roi_index][1]
+        y_cord = neuron_coordinates[roi_index][0]
+
+        colour = get_colour(0, "plasma", 0.8)
+        opacity = 0.2
+
+        roi_elipses[roi_index] = QGraphicsEllipseItem(0, 0, roi_size, roi_size)
+        roi_elipses[roi_index].setOpacity(opacity)
+        roi_elipses[roi_index].setBrush(QBrush(colour))
+        roi_elipses[roi_index].setPos(int(x_cord * scale_factor) + x_offset, int(y_cord * scale_factor) + y_offset)
+        roi_elipses[roi_index].setBrush(QBrush(colour))
+        scene.addItem(roi_elipses[roi_index])
+
+    #scene.setSceneRect(0, 0, 100, 100)
+    main.graphics_view.setScene(scene)
+
+
+
+def get_colour(input_value,colour_map,scale_factor):
+    input_value = input_value * scale_factor
+    cmap = cm.get_cmap(colour_map)
+    float_tuple = cmap(input_value)
+    matplot_to_q_colour_conversion_factor = 255
+    colour = QColor(float_tuple[0]*matplot_to_q_colour_conversion_factor,
+                          float_tuple[1]*matplot_to_q_colour_conversion_factor,
+                          float_tuple[2]*matplot_to_q_colour_conversion_factor)
+
+    return colour
+
+
+def run_visualisation():
+    global roi_elipses
+
+    for timepoint in range(number_of_timepoints):
+        for neuron in range(number_of_neurons):
+            if thresholded_allocations[neuron] != "NA":
+
+                activity = activity_matrix[neuron][timepoint]
+
+                colour = get_colour(float(thresholded_allocations[neuron])/ number_of_ensembles,"hsv",1)
+                roi_elipses[neuron].setBrush(QBrush(colour))
+
+                if activity == 1:
+                    roi_elipses[neuron].setOpacity(1)
+                else:
+                    roi_elipses[neuron].setOpacity(0.1)
+
+            sleep(0.20)
+        app.processEvents()
+
+    print "Finoished"
+
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+
+    main = Window()
+    main.show()
+
+    load_data()
+    draw_base_scene()
+
+    #run_visualisation()
+
+    sys.exit(app.exec_())
