@@ -1,0 +1,1446 @@
+import sys
+from PyQt4.QtCore import *
+from PyQt4.QtGui import *
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+from mpl_toolkits.mplot3d import Axes3D
+import community
+import networkx as nx
+from matplotlib import cm
+from time import sleep
+from collections import Counter
+import seaborn as sns
+from scipy import stats
+
+sys.path.append(r"C:\Users\matth\OneDrive\Documents\Python Code\Matts Modules")
+import matts_admin_functions
+import matts_network_functions
+import matts_matrix_functions
+import PCL_Parameters
+
+number_of_circular_permutations = 10
+number_of_fish = 8
+number_of_enriched_fish = 7
+activation_threshold = 0.99
+
+folder = r"C:\\Users\\matth\\OneDrive\\Documents\\WT_omega_for_matt\\"
+file_names = [  "180220_WT_h2b_gc6s_7dpf_f1omega_ext_be.dat",
+                "180220_WT_h2b_gc6s_7dpf_f2omega_ext_be.dat",
+                "180220_WT_h2b_gc6s_7dpf_f3omega_ext_be.dat",
+                "180323_WT_h2b_gc6s_7dpf_f1omega_ext_be.dat",
+                "180503_WT_h2b_gc6s_7dpf_f1omega_ext_be.dat",
+                "180510_WT_h2b_gc6s_7dpf_f1omega_ext_be.dat",
+                "180510_WT_h2b_gc6s_7dpf_f2omega_ext_be.dat",
+                "180510_WT_h2b_gc6s_7dpf_f3omega_ext_be.dat" ]
+
+enriched_folder = r"C:\\Users\\matth\\OneDrive\\Documents\\Grav_omega_for_mat\\"
+enriched_file_names = [ "180530_WT_grav_h2b_gc6s_7dpf_f1_sa__00001omega_ext_be.dat",
+                        "180530_WT_grav_h2b_gc6s_7dpf_f2_sa__00001omega_ext_be.dat",
+                        "180607_WT_grav_h2b_gc6s_7dpf_f1_sa__00001omega_ext_be.dat",
+                        "180607_WT_grav_h2b_gc6s_7dpf_f2_sa__00002omega_ext_be.dat",
+                        "180622_WT_grav_h2b_gc6s_7dpf_f2_sa__00006omega_ext_be.dat",
+                        "180724_WT_grav_h2b_gc6s_7dpf_f1_sa__00001omega_ext_be.dat",
+                        "180724_WT_grav_h2b_gc6s_7dpf_f3_sa__00001omega_ext_be.dat"]
+
+global node_elipses
+global edge_lines
+global node_colours
+
+global tsne_elipses
+global tsne_edges
+global tsne_colours
+
+
+def list_of_strings_to_list_of_floats(original_list):
+    new_list = []
+    for item in original_list:
+        new_item = float(item)
+        new_list.append(new_item)
+
+    return new_list
+
+
+def load_data(file):
+
+    raw_raster = pd.read_csv(file)
+    number_of_ensembles, var = np.shape(raw_raster)
+    raster = []
+
+    for ensemble in range(number_of_ensembles):
+        data = list(raw_raster.iloc[ensemble])
+        data = data[0].split()
+        del data[0]
+        data = list_of_strings_to_list_of_floats(data)
+        raster.append(data)
+
+    return raster, number_of_ensembles
+
+
+def binarise_matrix(matrix, threshold):
+    new_matrix = []
+    ensembles, timepoints = np.shape(matrix)
+
+    for ensemble in range(ensembles):
+        new_matrix.append([])
+        for timepoint in range(timepoints):
+            value = matrix[ensemble][timepoint]
+            if value > threshold:
+                new_matrix[ensemble].append(1)
+            else:
+                new_matrix[ensemble].append(0)
+
+    new_matrix = np.array(new_matrix)
+    return new_matrix
+
+def show_raster_plot(binary_matrix):
+    plt.imshow(binary_matrix, aspect=300)
+    plt.set_cmap("plasma")
+    plt.show()
+
+
+def assign_pca_values(matrix):
+    pca = PCA(n_components=3)
+    pca.fit(matrix)
+    components = pca.components_
+
+    x_values = []
+    y_values = []
+    z_values = []
+
+    for neuron in matrix:
+        x_values.append(np.sum(np.multiply(components[0], neuron)))
+        y_values.append(np.sum(np.multiply(components[1], neuron)))
+        z_values.append(np.sum(np.multiply(components[2], neuron)))
+
+    return x_values,y_values, z_values
+
+
+def assign_2d_pca_values(matrix):
+
+    matrix = np.transpose(matrix)
+
+    pca = PCA(n_components=2)
+    pca.fit(matrix)
+    components = pca.components_
+
+    x_values = []
+    y_values = []
+
+    for neuron in matrix:
+        x_values.append(np.sum(np.multiply(components[0], neuron)))
+        y_values.append(np.sum(np.multiply(components[1], neuron)))
+
+    return x_values,y_values
+
+
+
+
+def show_state_trajectory(binary_data):
+    x_values, y_values, z_values = assign_pca_values(binary_data)
+    ax = plt.gca(projection="3d")
+    ax.plot(x_values, y_values, z_values, color='m')
+    plt.show()
+
+def get_list_of_columns(matrix):
+    transposed = np.transpose(matrix)
+    column_list = np.ndarray.tolist(transposed)
+    return column_list
+
+def get_unique_occurence_dict(list_of_lists):
+    unique_occurence_dict = {}
+    list_of_strings = []
+
+
+    for list in list_of_lists:
+        string_list = str(list)
+
+        list_of_strings.append(string_list)
+
+        if string_list in unique_occurence_dict:
+            unique_occurence_dict[string_list] = unique_occurence_dict[string_list] + 1
+        else:
+            unique_occurence_dict[string_list] = 1
+
+    return unique_occurence_dict
+
+
+def string_to_list(string):
+
+    new_list = []
+    string = string.strip("[")
+    string = string.strip("]")
+    string = string.split(",")
+
+    for character in string:
+        new_list.append(int(character))
+
+    return new_list
+
+
+def get_simmilarity_between_states(state_1,state_2):
+    simmilarity = 0
+
+    for index in range(len(state_1)):
+        if state_1[index] == state_2[index]:
+            simmilarity += 1
+
+    simmilarity = float(simmilarity) / len(state_1)
+    return simmilarity
+
+def create_transition_matrix(unique_states, binary_matrix):
+    transition_matrix = matts_matrix_functions.create_zero_array(len(unique_states))
+
+    number_of_ensembles, number_of_timepoints = np.shape(binary_matrix)
+
+
+    for timepoint in range(number_of_timepoints-1):
+        preceeding_state    = str(list(binary_matrix[:,timepoint]))
+        following_state     = str(list(binary_matrix[:,timepoint + 1]))
+
+        preceeding_state_index = unique_states.index(preceeding_state)
+        following_state_index = unique_states.index(following_state)
+
+        transition_matrix[preceeding_state_index][following_state_index] += 1
+
+    return transition_matrix
+
+
+
+def create_state_simmilarity_matrix(unique_states):
+    simmilarity_matrix = matts_matrix_functions.create_zero_array(len(unique_states))
+    simmilarity_threshold = 0
+
+    for state_1_index in range(len(unique_states)):
+        for state_2_index in range(len(unique_states)):
+
+            if state_1_index == state_2_index:
+                simmilarity_matrix[state_1_index][state_2_index] = 1
+
+            else:
+                state_1_list = string_to_list(unique_states[state_1_index])
+                state_2_list = string_to_list(unique_states[state_2_index])
+
+                simmilarity = get_simmilarity_between_states(state_1_list,state_2_list)
+
+                if simmilarity > simmilarity_threshold:
+                    simmilarity_matrix[state_1_index][state_2_index] = simmilarity
+                else:
+                    simmilarity_matrix[state_1_index][state_2_index] = 0
+
+    return simmilarity_matrix
+
+def get_states(binary_matrix):
+    list_of_states = get_list_of_columns(binary_matrix)
+    unique_occurence_dict = get_unique_occurence_dict(list_of_states)
+    return unique_occurence_dict
+
+
+def louvain_cluster_graph(graph):
+
+    #Parition Graph Into Clusters Using Louvain Algorithm
+    partitions = community.best_partition(graph)
+
+    #Create Lists of the Nodes in Each Component
+    community_list = partitions.values()
+    number_of_clusters = max(community_list) + 1
+    subgraph_node_lists = matts_admin_functions.create_empty_list(number_of_clusters)
+    for node in range(len(community_list)):
+        node_community = community_list[node]
+        subgraph_node_lists[node_community].append(node)
+
+    return subgraph_node_lists
+
+index = 0
+
+
+def run_full_analysis():
+
+    for file in file_names:
+
+        #Load Data
+        raw_rastr, number_of_ensembles = load_data(folder + file)
+
+        #Binarise Matrix
+        binary_matrix = binarise_matrix(raw_rastr,0.9)
+
+        #Show Ensemble Raster Plot
+        show_raster_plot(binary_matrix)
+
+        #Show Ensemble Stat Trajectory Plot
+        show_state_trajectory(binary_matrix)
+
+        #Get All Unique Network States
+        unique_states_dict = get_states(binary_matrix)
+
+        #Create Transition Matrix
+        transition_matrix = create_transition_matrix(unique_states_dict.keys(),binary_matrix)
+
+        #Get Intrinsic State Stabilities
+        state_stability = np.diagonal(transition_matrix)
+        print "intrinsic state stabilities", state_stability
+
+        #Create Graph From The Transition Matrix
+        transition_graph = matts_network_functions.create_graph(transition_matrix)
+        matts_network_functions.plot_graph_basic_weights(transition_graph)
+
+        #Get Transition Clusters
+        clusters = louvain_cluster_graph(transition_graph)
+        print "number of clusters", len(clusters)
+        print "cluster sizes: "
+        for cluster in clusters:
+            print len(cluster)
+
+        #Create State Simmilarity Matrix
+        similarity_matrix = create_state_simmilarity_matrix(unique_states_dict.keys())
+
+        #Create Graph From Simmilarity Matrix
+        similarity_graph = matts_network_functions.create_graph(similarity_matrix)
+        matts_network_functions.plot_graph_basic_weights(similarity_graph)
+
+        #Extract Similarity Clusters
+        clusters = louvain_cluster_graph(similarity_graph)
+        print "number of clusters", len(clusters)
+        print "cluster sizes: "
+        for cluster in clusters:
+            print len(cluster)
+
+
+"""
+#####################################################################
+
+#Load Data
+raw_rastr, number_of_ensembles = load_data(folder + file_names[2])
+
+#Binarise Matrix
+binary_matrix = binarise_matrix(raw_rastr,0.9)
+
+unique_states_dict = get_states(binary_matrix)
+
+similarity_matrix = create_state_simmilarity_matrix(unique_states_dict.keys())
+transition_matrix = create_transition_matrix(unique_states_dict.keys(),binary_matrix)
+
+similarity_graph = matts_network_functions.create_graph(similarity_matrix)
+transition_graph = matts_network_functions.create_graph(transition_matrix)
+
+
+
+edge_weights = matts_network_functions.get_edge_weights(transition_graph, 1)
+colour_map = cm.get_cmap("plasma")
+node_colours = matts_network_functions.louvain_partition_graph(transition_graph)
+nx.draw(transition_graph, pos=nx.spring_layout(similarity_graph), node_size=40, arrows=False, with_labels=False, edge_color=edge_weights,
+        edge_cmap=colour_map, node_color=node_colours)
+plt.show()
+"""
+
+class Window(QDialog):
+
+    def __init__(self, parent=None):
+        super(Window, self).__init__(parent)
+        self.setWindowTitle("State Trajectory")
+        #self.setGeometry(100,100,1500,700)
+        self.showMaximized()
+
+        self.create_main_layout()
+
+    def create_main_layout(self):
+        self.layout = QGridLayout()
+        self.setLayout(self.layout)
+
+        self.graphics_view = QGraphicsView()
+        #self.graphics_view.setMaximumWidth(1000)
+        #self.graphics_view.setMaximumHeight(800)
+
+        self.layout.addWidget(self.graphics_view,   00, 00)
+
+
+def display_graph(fish):
+
+    raw_rastr, number_of_ensembles = load_data(folder + file_names[fish])
+    binary_matrix = binarise_matrix(raw_rastr, 0.9)
+    #binary_matrix = matts_matrix_functions.circularly_permute(binary_matrix)
+    length_dict, raw_lengths = count_tragectory_lengths(binary_matrix)
+
+    #histogram = np.hstack(raw_lengths)
+    #plt.hist(histogram, bins='auto')
+    #plt.show()
+
+
+    unique_states_dict = get_states(binary_matrix)
+    transition_matrix = create_transition_matrix(unique_states_dict.keys(), binary_matrix)
+    transition_graph = matts_network_functions.create_graph(transition_matrix)
+
+    # similarity_graph = matts_network_functions.create_graph(similarity_matrix)
+    # similarity_matrix = create_state_simmilarity_matrix(unique_states_dict.keys())
+
+    draw_base_scene(transition_graph,transition_matrix)
+    app.processEvents()
+    visualise_activity(binary_matrix, unique_states_dict.keys())
+
+
+def display_tsne_plot(fish):
+    global main
+    global app
+
+    app = QApplication(sys.argv)
+    main = Window()
+    main.show()
+
+    raw_rastr, number_of_ensembles = load_data(folder + file_names[fish])
+    binary_matrix = binarise_matrix(raw_rastr, 0.9)
+    unique_states_dict = get_states(binary_matrix)
+
+    transition_matrix = create_transition_matrix(unique_states_dict.keys(), binary_matrix)
+    similarity_matrix = create_state_simmilarity_matrix(unique_states_dict.keys())
+
+    base_scene = draw_base_tsne_scene(unique_states_dict,similarity_matrix,transition_matrix,number_of_ensembles)
+    main.graphics_view.setScene(base_scene)
+    app.processEvents()
+
+    sys.exit(app.exec_())
+
+def draw_base_tsne_scene(unique_states,similarity_matrix,transition_matrix,number_of_ensembles):
+    global tsne_elipses
+    global tsne_edges
+    global tsne_colours
+
+    scene = QGraphicsScene(0, 0, 1500, 1000)
+    node_size = float(10)
+    scale_factor = 30
+    x_offset = 750
+    y_offset = 600
+
+    number_of_states = len(unique_states.keys())
+    tsne_elipses = matts_admin_functions.create_empty_list(number_of_states)
+    x_positions, y_positions = tsne(similarity_matrix)
+
+
+    #Get State Sizes
+    state_list = unique_states.keys()
+    state_sizes = []
+
+    for state in range(number_of_states):
+        state_string = state_list[state]
+        state_size = state_string.count("1")
+        state_sizes.append(state_size)
+
+    max_size = np.max(state_sizes)
+
+    # Draw Edges
+    for from_node in range(number_of_states):
+        for to_node in range(number_of_states):
+
+            if from_node == to_node:
+                pass
+
+            else:
+                if transition_matrix[from_node][to_node] == 0:
+                    pass
+                else:
+                    from_x = x_positions[from_node] * scale_factor + x_offset + (0.5 * node_size)
+                    from_y = y_positions[from_node] * scale_factor + y_offset + (0.5 * node_size)
+
+                    to_x = x_positions[to_node] * scale_factor + x_offset + (0.5 * node_size)
+                    to_y = y_positions[to_node] * scale_factor + y_offset + (0.5 * node_size)
+
+                    colour = get_colour(transition_matrix[from_node][to_node], "plasma", 0.1)
+                    size = (transition_matrix[from_node][to_node] * 0.1)
+                    pen = QPen(colour, size, Qt.SolidLine)
+
+                    line = QGraphicsLineItem(from_x, from_y, to_x, to_y)
+                    line.setPen(pen)
+                    scene.addItem(line)
+
+
+    #Draw Nodes
+    for state in range(number_of_states):
+        tsne_elipses[state] = QGraphicsEllipseItem(0, 0, node_size, node_size)
+        tsne_elipses[state].setPos(int(x_positions[state] * scale_factor) + x_offset, int(y_positions[state] * scale_factor) + y_offset)
+        tsne_elipses[state].setOpacity(0.8)
+
+        normalised_state_size = float(state_sizes[state]) / max_size
+        colour = get_colour(normalised_state_size,"hot",1)
+        tsne_elipses[state].setBrush(QBrush(colour))
+
+        scene.addItem(tsne_elipses[state])
+
+
+
+    return scene
+
+
+
+
+
+def get_colour(input_value,colour_map,scale_factor):
+    input_value = input_value * scale_factor
+    cmap = cm.get_cmap(colour_map)
+    float_tuple = cmap(input_value)
+    matplot_to_q_colour_conversion_factor = 255
+    colour = QColor(float_tuple[0]*matplot_to_q_colour_conversion_factor,
+                          float_tuple[1]*matplot_to_q_colour_conversion_factor,
+                          float_tuple[2]*matplot_to_q_colour_conversion_factor)
+
+    return colour
+
+def draw_base_scene(transition_graph,transition_matrix):
+    global node_elipses
+    global edge_lines
+    global node_colours
+
+    scene = QGraphicsScene(0, 0, 1500, 1000)
+    node_size = float(10)
+    scale_factor = 500
+    x_offset = 500
+    y_offset = 550
+
+    node_positions = nx.spring_layout(transition_graph)
+
+    node_elipses = matts_admin_functions.create_empty_list(len(node_positions.keys()))
+    x_positions = matts_admin_functions.create_empty_list(len(node_positions.keys()))
+    y_positions = matts_admin_functions.create_empty_list(len(node_positions.keys()))
+
+    edge_lines = matts_matrix_functions.create_empty_array(len(node_positions.keys()))
+
+    node_colours = matts_network_functions.louvain_partition_graph(transition_graph)
+    print node_colours
+
+    #Get Node Positions
+    for node in node_positions.keys():
+        x_cord = node_positions[node][0]
+        y_cord = node_positions[node][1]
+        x_positions[node] = x_cord
+        y_positions[node] = y_cord
+
+
+
+    #Draw Edges
+    edges = transition_graph.edges()
+    for edge in edges:
+        from_node = edge[0]
+        to_node = edge[1]
+
+        if from_node == to_node:
+            pass
+
+        else:
+            from_x  = x_positions[from_node]    * scale_factor + x_offset + (0.5 * node_size)
+            from_y  = y_positions[from_node]    * scale_factor + y_offset + (0.5 * node_size)
+            to_x    = x_positions[to_node]      * scale_factor + x_offset + (0.5 * node_size)
+            to_y    = y_positions[to_node]      * scale_factor + y_offset + (0.5 * node_size)
+
+            colour = get_colour(transition_matrix[from_node][to_node],"plasma",0.1)
+            pen = QPen(colour, 0.3, Qt.SolidLine)
+            edge_lines[from_node][to_node] = QGraphicsLineItem(from_x, from_y, to_x, to_y)
+            edge_lines[from_node][to_node].setPen(pen)
+            scene.addItem(edge_lines[from_node][to_node])
+
+    #Draw Nodes
+    for node in node_positions.keys():
+
+        node_elipses[node] = QGraphicsEllipseItem(0, 0, node_size, node_size)
+        node_elipses[node].setPos(int(x_positions[node] * scale_factor) + x_offset, int(y_positions[node] * scale_factor) + y_offset)
+        node_elipses[node].setOpacity(0.4)
+
+        colour = QColor(node_colours[node][0]*255,node_colours[node][1]*255,node_colours[node][2]*255)
+        node_elipses[node].setBrush(QBrush(colour))
+
+        scene.addItem(node_elipses[node])
+
+    main.graphics_view.setScene(scene)
+
+def visualise_activity(binary_matrix,unique_states):
+    global node_elipses
+
+    number_of_ensembles, number_of_timepoints = np.shape(binary_matrix)
+    print number_of_ensembles, number_of_timepoints
+    on_colour = get_colour(1, "plasma", 0.8)
+
+    for timepoint in range(number_of_timepoints-1):
+        current_state = binary_matrix[:,timepoint]
+        next_state = binary_matrix[:,timepoint+1]
+
+        current_node = unique_states.index(str(list(current_state)))
+        next_node = unique_states.index(str(list(next_state)))
+
+        if next_node == 772:
+            current_colour = QColor(node_colours[current_node][0] * 255, node_colours[current_node][1] * 255,node_colours[current_node][2] * 255)
+            node_elipses[current_node].setBrush(QBrush(current_colour))
+            node_elipses[current_node].setOpacity(0.4)
+
+        else:
+            current_colour = QColor(node_colours[current_node][0]*255,node_colours[current_node][1]*255,node_colours[current_node][2]*255)
+
+            node_elipses[current_node].setBrush(QBrush(current_colour))
+            node_elipses[next_node].setBrush(QBrush(on_colour))
+
+            node_elipses[current_node].setOpacity(0.2)
+            node_elipses[next_node].setOpacity(1)
+
+            sleep(0.1)
+            app.processEvents()
+
+
+
+def count_tragectory_lengths(binary_matrix):
+
+    length_dict = {}
+    raw_lengths = []
+    rows, columns = np.shape(binary_matrix)
+    zero_state = matts_admin_functions.create_list_of_zeros(rows)
+
+    #print "zero state", zero_state
+
+    count = 0
+    for column in range(columns):
+        state = binary_matrix[:,column]
+        #print "state", state
+        #print list(state)
+
+        if list(state) == zero_state:
+
+            if count != 0:
+                raw_lengths.append(count)
+
+            if count in length_dict.keys():
+                length_dict[count] += 1
+            else:
+                length_dict[count] = 1
+            count = 0
+        else:
+            count +=1
+
+    return length_dict, raw_lengths
+
+
+
+
+def tsne(data):
+    RS = 123
+    state_tsne = TSNE(random_state=RS).fit_transform(data)
+
+    x_points = []
+    y_points = []
+
+    for state in state_tsne:
+        x_points.append(state[0])
+        y_points.append(state[1])
+
+    return x_points, y_points
+
+
+
+def analyse_number_of_states():
+
+    wildtype_data = []
+    wildtype_null = []
+    enriched_data = []
+    enriched_null = []
+
+    normalised_wildtype_data = []
+    normalised_wildtype_null = []
+    normalised_enriched_data = []
+    normalised_enriched_null = []
+
+    #Analyse Wildtype Fish
+    for fish in range(number_of_fish):
+        print "Fish:" , str(fish)
+        raw_rastr, number_of_ensembles = load_data(folder + file_names[fish])
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        unique_states_dict = get_states(binary_matrix)
+
+        data = [len(unique_states_dict.keys())]
+        print "data", data
+        wildtype_data = wildtype_data + data
+
+        null_data = []
+        for permutation in range(number_of_circular_permutations):
+            permuted_binary_matrix = matts_matrix_functions.circularly_permute(binary_matrix)
+            unique_states_dict = get_states(permuted_binary_matrix)
+            null_data_point = len(unique_states_dict.keys())
+            null_data.append(null_data_point)
+
+        print "null data", null_data
+        wildtype_null = wildtype_null + null_data
+
+        #Normalise Data
+        null_mean = np.mean(null_data)
+        normalised_data = float(data[0])/null_mean
+        normalised_wildtype_data.append(normalised_data)
+        for data_point in null_data:
+            normalised_wildtype_null.append(float(data_point)/null_mean)
+
+
+    #Analyse Enriched data
+    for enriched_fish in range(number_of_enriched_fish):
+        print "enriched fish", str(enriched_fish)
+        raw_rastr, number_of_ensembles = load_data(enriched_folder + enriched_file_names[enriched_fish])
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        unique_states_dict = get_states(binary_matrix)
+
+        data = len(unique_states_dict.keys())
+        enriched_data.append(data)
+
+        print "data", data
+
+        null_data = []
+        for permutation in range(number_of_circular_permutations):
+            permuted_binary_matrix = matts_matrix_functions.circularly_permute(binary_matrix)
+            unique_states_dict = get_states(permuted_binary_matrix)
+            null_data_point = len(unique_states_dict.keys())
+            null_data.append(null_data_point)
+        enriched_null = enriched_null + null_data
+
+
+        print "null data", null_data
+        # Normalise Data
+        null_mean = np.mean(null_data)
+        normalised_data = float(data) / null_mean
+        normalised_enriched_data.append(normalised_data)
+        for data_point in null_data:
+            normalised_enriched_null.append(float(data_point) / null_mean)
+
+
+
+    plot_swarmplot([wildtype_data, wildtype_null, enriched_data, enriched_null])
+    print "WT mean",        np.mean(wildtype_data)
+    print "WT null mean",   np.mean(wildtype_null)
+    print "EN mean",        np.mean(enriched_data)
+    print "EN null mean",   np.mean(enriched_null)
+
+    plot_swarmplot([normalised_wildtype_data,normalised_wildtype_null,normalised_enriched_data,normalised_enriched_null])
+
+
+
+
+
+
+
+def get_relative_state_size_frequencies(unique_states_dict, number_of_ensembles):
+
+    size_frequency_list = matts_admin_functions.create_list_of_zeros(number_of_ensembles)
+
+    for unique_state in unique_states_dict.keys():
+        size = unique_state.count("1")
+        size_frequency_list[size] = size_frequency_list[size] + 1
+
+    x_cords = []
+    for item in range(number_of_ensembles):
+        x_cords.append(float(item) / number_of_ensembles)
+
+    y_cords = []
+    number_of_states = len(unique_states_dict.keys())
+    for item in size_frequency_list:
+        y_cords.append(float(item) / number_of_states)
+
+    return x_cords,y_cords
+
+
+def get_size_counts(unique_states_dict):
+    size_count = []
+
+    for unique_state in unique_states_dict.keys():
+        print unique_state
+        size = unique_state.count("1")
+        print "size: ", size
+        frequency = unique_states_dict[unique_state]
+        for item in range(frequency):
+            size_count.append(size)
+
+    return size_count
+
+def get_unique_size_count(unique_states_dict):
+    size_count = []
+
+    for unique_state in unique_states_dict.keys():
+        size = unique_state.count("1")
+        size_count.append(size)
+
+    return size_count
+
+
+
+
+
+def analyse_size_of_states():
+
+    print "analysing sizes"
+
+    wt_mean_sizes       = []
+    wt_null_mean_sizes  = []
+    en_mean_sizes       = []
+    en_null_mean_sizes  = []
+
+    x_cords_list                        = matts_admin_functions.create_empty_list(number_of_fish)
+    y_cords_list                        = matts_admin_functions.create_empty_list(number_of_fish)
+    shuffeld_x_cords_list               = matts_admin_functions.create_empty_list(number_of_fish)
+    shuffeld_y_cords_list               = matts_admin_functions.create_empty_list(number_of_fish)
+
+    enriched_x_cords_list               = matts_admin_functions.create_empty_list(number_of_enriched_fish)
+    enriched_y_cords_list               = matts_admin_functions.create_empty_list(number_of_enriched_fish)
+    shuffled_enriched_x_cords_list      = matts_admin_functions.create_empty_list(number_of_enriched_fish)
+    shuffled_enriched_y_cords_list      = matts_admin_functions.create_empty_list(number_of_enriched_fish)
+
+
+    for fish in range(number_of_fish):
+
+        print "Fish:" , str(fish)
+        raw_rastr, number_of_ensembles = load_data(folder + file_names[fish])
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        unique_states_dict = get_states(binary_matrix)
+        x_cords, y_cords = get_relative_state_size_frequencies(unique_states_dict, number_of_ensembles)
+
+        x_cords_list[fish] = x_cords
+        y_cords_list[fish] = y_cords
+
+        data_count = get_unique_size_count(unique_states_dict)
+        wt_mean_sizes.append(np.mean(data_count))
+
+
+        #Generate Shuffled Data
+        for permutation in range(number_of_circular_permutations):
+            shuffled_binary_matrix = matts_matrix_functions.circularly_permute(binary_matrix)
+            unique_states_dict = get_states(shuffled_binary_matrix)
+            x_cords, y_cords = get_relative_state_size_frequencies(unique_states_dict, number_of_ensembles)
+
+            shuffeld_x_cords_list[fish].append(x_cords)
+            shuffeld_y_cords_list[fish].append(y_cords)
+
+            null_count = get_unique_size_count(unique_states_dict)
+            wt_null_mean_sizes.append(np.mean(null_count))
+
+    for fish in range(number_of_enriched_fish):
+
+        print "Enriched Fish:", str(fish)
+        raw_rastr, number_of_ensembles = load_data(enriched_folder + enriched_file_names[fish])
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        unique_states_dict = get_states(binary_matrix)
+        x_cords, y_cords = get_relative_state_size_frequencies(unique_states_dict, number_of_ensembles)
+
+        enriched_x_cords_list[fish] = x_cords
+        enriched_y_cords_list[fish] = y_cords
+
+        data_count = get_unique_size_count(unique_states_dict)
+        print "data count", data_count
+        en_mean_sizes.append(np.mean(data_count))
+
+        #Generate Shuffled Data
+        for permutation in range(number_of_circular_permutations):
+            shuffled_binary_matrix = matts_matrix_functions.circularly_permute(binary_matrix)
+            unique_states_dict = get_states(shuffled_binary_matrix)
+            x_cords, y_cords = get_relative_state_size_frequencies(unique_states_dict, number_of_ensembles)
+
+            shuffled_enriched_x_cords_list[fish].append(x_cords)
+            shuffled_enriched_y_cords_list[fish].append(y_cords)
+
+            null_count = get_unique_size_count(unique_states_dict)
+            en_null_mean_sizes.append(np.mean(null_count))
+
+    plot_swarmplot([wt_mean_sizes,wt_null_mean_sizes,en_mean_sizes, en_null_mean_sizes])
+
+
+    #Plot Data
+    for enriched_fish in range(number_of_enriched_fish):
+        for enriched_permutation in range(number_of_circular_permutations):
+            #plt.plot(shuffled_enriched_x_cords_list[fish][permutation], shuffled_enriched_y_cords_list[fish][permutation], "g", alpha=0.2)
+            plt.plot(enriched_x_cords_list[enriched_fish],enriched_y_cords_list[enriched_fish],"m", alpha=0.8)
+
+    for fish in range(number_of_fish):
+        for permutation in range(number_of_circular_permutations):
+            # plt.plot(shuffeld_x_cords_list[fish][permutation], shuffeld_y_cords_list[fish][permutation], "r", alpha=0.1)
+            plt.plot(x_cords_list[fish], y_cords_list[fish], "b", alpha=0.8)
+
+    plt.show()
+
+
+def get_similarity_transition_correlation(unique_states_dict,binary_matrix):
+
+    similarity_matrix = create_state_simmilarity_matrix(unique_states_dict.keys())
+    np.fill_diagonal(similarity_matrix, 0)
+    #plt.imshow(similarity_matrix)
+    #plt.show()
+
+    transition_matrix = create_transition_matrix(unique_states_dict.keys(), binary_matrix)
+    np.fill_diagonal(transition_matrix, 0)
+    #plt.imshow(transition_matrix)
+    #plt.show()
+
+    x_points = []
+    y_points = []
+    number_of_states = len(unique_states_dict.keys())
+    for state_1 in range(number_of_states):
+        for state_2 in range(number_of_states):
+            similarity = similarity_matrix[state_1][state_2]
+            transition_weight = transition_matrix[state_1][state_2]
+            x_points.append(similarity)
+            y_points.append(transition_weight)
+
+    return x_points, y_points
+
+
+
+def analyse_number_of_transitions():
+    print "Analysing Number Of Transitions"
+
+    wt_number_of_transitions        = []
+    wt_null_number_of_transitions   = []
+    en_number_of_transitions        = []
+    en_null_number_of_transitions   = []
+
+    for fish in range(number_of_fish):
+        print "Fish:", str(fish)
+        raw_rastr, number_of_ensembles = load_data(folder + file_names[fish])
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        number_of_transitions = count_number_of_transitions(binary_matrix)
+        wt_number_of_transitions.append(number_of_transitions)
+
+        for permutation in range(number_of_circular_permutations):
+            permuted_matrix = matts_matrix_functions.circularly_permute(binary_matrix)
+            number_of_permuted_transitions = count_number_of_transitions(permuted_matrix)
+            wt_null_number_of_transitions.append(number_of_permuted_transitions)
+
+
+    for fish in range(number_of_enriched_fish):
+        print "Enriched Fish:", str(fish)
+        raw_rastr, number_of_ensembles = load_data(enriched_folder + enriched_file_names[fish])
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        number_of_transitions = count_number_of_transitions(binary_matrix)
+        en_number_of_transitions.append(number_of_transitions)
+
+
+        for permutation in range(number_of_circular_permutations):
+            permuted_matrix = matts_matrix_functions.circularly_permute(binary_matrix)
+            number_of_permuted_transitions = count_number_of_transitions(permuted_matrix)
+            en_null_number_of_transitions.append(number_of_permuted_transitions)
+
+
+    plot_swarmplot([wt_number_of_transitions,wt_null_number_of_transitions,en_number_of_transitions,en_null_number_of_transitions])
+
+
+
+def count_number_of_transitions(binary_matrix):
+
+    number_of_transitions = 0
+    number_of_ensembles, number_of_timepoints = np.shape(binary_matrix)
+
+    for timepoint in range(number_of_timepoints-1):
+        current_state = binary_matrix[:,timepoint]
+        current_state_string = str(current_state)
+
+        next_state = binary_matrix[:,timepoint+1]
+        next_state_string = str(next_state)
+
+        if current_state_string != next_state_string:
+            number_of_transitions += 1
+
+    return number_of_transitions
+
+
+
+def analyse_similarity_transition_correlation():
+
+    for fish in range(number_of_fish):
+        print "Fish:", str(fish)
+        raw_rastr, number_of_ensembles = load_data(folder + file_names[fish])
+
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        unique_states_dict = get_states(binary_matrix)
+        data_x_points, data_y_points = get_similarity_transition_correlation(unique_states_dict,binary_matrix)
+
+        permuted_binary_matrix = matts_matrix_functions.circularly_permute(binary_matrix)
+        permuted_unique_states = get_states(permuted_binary_matrix)
+        null_x_points, null_y_points = get_similarity_transition_correlation(permuted_unique_states, permuted_binary_matrix)
+
+        plt.scatter(data_x_points, data_y_points)
+        plt.scatter(null_x_points, null_y_points)
+        plt.show()
+
+
+
+def smooth_timeseries(timeseries, bin_size):
+
+    average_activities = []
+    number_of_timepoints = len(timeseries)
+    number_of_bins = number_of_timepoints / bin_size
+
+    for bin in range(number_of_bins):
+        bin_activity = []
+        for timepoint in range(bin_size):
+            index = timepoint + (bin_size * bin)
+            activity = timeseries[index]
+            bin_activity.append(activity)
+        average_activities.append(np.mean(bin_activity))
+
+    return average_activities
+
+
+def get_total_activity_timeseries(binary_matrix):
+
+    activities = []
+    number_of_ensembles, number_of_timepoints = np.shape(binary_matrix)
+
+    for timepoint in range(number_of_timepoints):
+        activity = np.sum(binary_matrix[:, timepoint])
+        activities.append(activity)
+
+    return activities
+
+
+def analyse_number_of_ensembles_active_over_time():
+
+    for fish in range(number_of_fish):
+        print "Fish:", str(fish)
+        raw_rastr, number_of_ensembles = load_data(folder + file_names[fish])
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        activities = get_total_activity_timeseries(binary_matrix)
+        #average_activities = smooth_timeseries(activities, 10)
+
+
+        for permutation in range(number_of_circular_permutations):
+            permuted_matrix = matts_matrix_functions.circularly_permute(binary_matrix)
+            permuted_activities = get_total_activity_timeseries(permuted_matrix)
+            #permuted_average_activities = smooth_timeseries(permuted_activities, 10)
+
+            plt.plot(permuted_activities, "r", alpha=0.5)
+
+        plt.plot(activities, "b")
+        plt.show()
+
+
+def analyse_rate_of_new_state_formation():
+
+    for fish in range(number_of_fish):
+        print "Fish:", str(fish)
+        raw_rastr, number_of_ensembles = load_data(folder + file_names[fish])
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        binary_matrix = matts_matrix_functions.circularly_permute(binary_matrix)
+        number_of_ensembles, number_of_timepoints = np.shape(binary_matrix)
+
+        rate_of_state_formation = []
+        activity = []
+        existing_states = []
+
+        for timepoint in range(number_of_timepoints):
+            state = binary_matrix[:,timepoint]
+            state_string = str(state)
+            state_size = state_string.count("1")
+
+            if state_string in existing_states:
+                rate_of_state_formation.append(0)
+            else:
+                rate_of_state_formation.append(1)
+                existing_states.append(state_string)
+
+            activity.append(state_size)
+
+        plt.plot(rate_of_state_formation)
+        plt.plot(activity, alpha = 0.5)
+        plt.show()
+
+
+
+
+
+
+
+def visualise_transitions(fish):
+    global main
+    global app
+
+    app = QApplication(sys.argv)
+    main = Window()
+    main.show()
+    display_graph(fish)
+
+
+def analyse_state_frequencies():
+
+    for fish in range(number_of_fish):
+        print "Fish:", str(fish)
+        raw_rastr, number_of_ensembles = load_data(folder + file_names[fish])
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        state_dict = get_states(binary_matrix)
+        frequencies = state_dict.values()
+        frequencies.remove(np.max(frequencies))
+        for frequency in frequencies:
+            print frequency
+
+        print "permuted data"
+        permuted_matrix = matts_matrix_functions.circularly_permute(binary_matrix)
+        permuted_state_dict = get_states(permuted_matrix)
+        permuted_frequencies = permuted_state_dict.values()
+        permuted_frequencies.remove(np.max(permuted_frequencies))
+        for frequency in permuted_frequencies:
+            print frequency
+
+
+def analyse_state_similarities():
+    print "Analysing State Similarities"
+
+    wt_mean_sim         = []
+    wt_null_mean_sim    = []
+    en_mean_sim         = []
+    en_null_mean_sim    = []
+
+    #Calculate For Wildtype Fish
+    for fish in range(number_of_fish):
+        print "Fish:", str(fish)
+        raw_rastr, number_of_ensembles = load_data(folder + file_names[fish])
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        state_dict = get_states(binary_matrix)
+        similarity_matrix = create_state_simmilarity_matrix(state_dict.keys())
+        data = np.ndarray.flatten(similarity_matrix)
+        wt_mean_sim.append(np.mean(data))
+
+        #Get Null Model
+        permuted_data = []
+        for permutation in range(number_of_circular_permutations):
+            permuted_matrix = matts_matrix_functions.circularly_permute(binary_matrix)
+            permuted_state_dict = get_states(permuted_matrix)
+            similarity_matrix = create_state_simmilarity_matrix(permuted_state_dict.keys())
+            permuted_data = np.ndarray.flatten(similarity_matrix)
+            wt_null_mean_sim.append(np.mean(permuted_data))
+
+
+    #Calculate For Enriched Fish
+    for fish in range(number_of_enriched_fish):
+        print "Enriched Fish:", str(fish)
+        raw_rastr, number_of_ensembles = load_data(enriched_folder + enriched_file_names[fish])
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        state_dict = get_states(binary_matrix)
+        similarity_matrix = create_state_simmilarity_matrix(state_dict.keys())
+        data = np.ndarray.flatten(similarity_matrix)
+        en_mean_sim.append(np.mean(data))
+
+        #Get Null Model
+        permuted_data = []
+        for permutation in range(number_of_circular_permutations):
+            permuted_matrix = matts_matrix_functions.circularly_permute(binary_matrix)
+            permuted_state_dict = get_states(permuted_matrix)
+            similarity_matrix = create_state_simmilarity_matrix(permuted_state_dict.keys())
+            permuted_data = np.ndarray.flatten(similarity_matrix)
+            en_null_mean_sim.append(np.mean(permuted_data))
+
+    test_significiance(wt_mean_sim,wt_null_mean_sim,en_mean_sim,en_null_mean_sim)
+
+    plot_swarmplot([wt_mean_sim,wt_null_mean_sim,en_mean_sim,en_null_mean_sim])
+    plt.show()
+
+
+
+def test_significiance(wt_data,wt_null,en_data,en_null):
+
+    print "Shaipro-Wilks wt data", stats.shapiro(wt_data)
+    print "Shaipro-Wilks wt null", stats.shapiro(wt_null)
+    print "Shaipro-Wilks en data", stats.shapiro(en_data)
+    print "Shaipro-Wilks en null", stats.shapiro(en_null)
+
+    print "unpaired t: wt to null: ", stats.ttest_ind(wt_data, wt_null)
+    print "unpaired t: en to null: ", stats.ttest_ind(en_data, en_null)
+    print "unpaired t: wt to en: ",   stats.ttest_ind(wt_data, en_data)
+
+    print "Man whitney U: wt to null", stats.mannwhitneyu(wt_data, wt_null)
+    print "Man whitney U: en to null", stats.mannwhitneyu(en_data, en_null)
+    print "Man whitney U: wt to en",   stats.mannwhitneyu(wt_data, en_data)
+
+
+
+def analyse_number_of_ensembles():
+    print "Analysing Number Of Ensembles"
+
+    wt_number_of_ensembles = []
+    en_number_of_ensembles = []
+
+    for fish in range(number_of_fish):
+        print "Fish:", str(fish)
+        raw_rastr, number_of_ensembles = load_data(folder + file_names[fish])
+        wt_number_of_ensembles.append(number_of_ensembles)
+
+    for enriched_fish in range(number_of_enriched_fish):
+        print "Enriched Fish:", str(enriched_fish)
+        raw_rastr, number_of_ensembles = load_data(enriched_folder + enriched_file_names[enriched_fish])
+        en_number_of_ensembles.append(number_of_ensembles)
+
+    plot_swarmplot([wt_number_of_ensembles,en_number_of_ensembles])
+
+
+def analyse_total_activity():
+    print "Analysing Total Activity"
+
+    wt_activity = []
+    en_activity = []
+
+    for fish in range(number_of_fish):
+        print "Fish:", str(fish)
+        raw_rastr, number_of_ensembles = load_data(folder + file_names[fish])
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        for ensemble in binary_matrix:
+            wt_activity.append(np.sum(ensemble))
+
+
+    for enriched_fish in range(number_of_enriched_fish):
+        print "Enriched Fish:", str(enriched_fish)
+        raw_rastr, number_of_ensembles = load_data(enriched_folder + enriched_file_names[enriched_fish])
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        for ensemble in binary_matrix:
+            en_activity.append(np.sum(ensemble))
+
+    plot_swarmplot([wt_activity, en_activity])
+
+
+
+def analyse_total_silence():
+    print "Analysing Total Silence"
+
+    wt_silence = []
+    en_silence = []
+
+    #Analyse Wildtype Fish
+    for fish in range(number_of_fish):
+        print "Fish:", str(fish)
+        time_in_silence = 0
+        raw_rastr, number_of_ensembles = load_data(folder + file_names[fish])
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        number_of_ensembles,number_of_timepoints = np.shape(binary_matrix)
+
+        for timepoint in range(number_of_timepoints):
+            state = binary_matrix[:,timepoint]
+            if np.sum(state) == 0:
+                time_in_silence +=1
+
+        wt_silence.append(time_in_silence)
+
+
+    #Analyse Enriched Fish
+    for enriched_fish in range(number_of_enriched_fish):
+        print "Enriched Fish:", str(enriched_fish)
+        time_in_silence = 0
+        raw_rastr, number_of_ensembles = load_data(enriched_folder + enriched_file_names[enriched_fish])
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        number_of_ensembles, number_of_timepoints = np.shape(binary_matrix)
+
+        for timepoint in range(number_of_timepoints):
+            state = binary_matrix[:, timepoint]
+            if np.sum(state) == 0:
+                time_in_silence += 1
+
+        en_silence.append(time_in_silence)
+
+    plot_swarmplot([wt_silence, en_silence])
+
+
+def plot_swarmplot(data):
+    sns.set()
+    sns.set_style("white")
+    axis = plt.subplot(111)
+    sns.swarmplot(data=data,ax=axis)
+    plt.show()
+
+
+def analyse_transition_similarities():
+    print "Analysing Transition Similarities"
+
+    wt_data_transition_similarities = []
+    wt_null_transition_similarities = []
+    en_data_transition_similarities = []
+    en_null_transition_similarities = []
+
+    #Analayse Wildtype Fish
+    for fish in range(number_of_fish):
+        print "Fish:", str(fish)
+
+        transition_similarities = []
+        raw_rastr, number_of_ensembles = load_data(folder + file_names[fish])
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        number_of_ensembles, number_of_timepoints = np.shape(binary_matrix)
+        for timepoint in range(number_of_timepoints-1):
+            current_state = binary_matrix[:,timepoint]
+            next_state = binary_matrix[:,timepoint+1]
+
+            if str(current_state) == str(next_state):
+                pass
+            else:
+                transition_similarity = get_simmilarity_between_states(current_state,next_state)
+                transition_similarities.append(transition_similarity)
+
+        wt_data_transition_similarities.append(np.mean(transition_similarities))
+
+        permuted_transition_similarities = []
+        for permutation in range(number_of_circular_permutations):
+            permuted_matrix = matts_matrix_functions.circularly_permute(binary_matrix)
+            for timepoint in range(number_of_timepoints - 1):
+                current_state = permuted_matrix[:, timepoint]
+                next_state = permuted_matrix[:, timepoint + 1]
+
+                if str(current_state) == str(next_state):
+                    pass
+                else:
+                    transition_similarity = get_simmilarity_between_states(current_state, next_state)
+                    permuted_transition_similarities.append(transition_similarity)
+
+            wt_null_transition_similarities.append(np.mean(permuted_transition_similarities))
+
+
+    #Analyse Enriched Fish
+    for fish in range(number_of_enriched_fish):
+        print "Enriched Fish:", str(fish)
+
+        transition_similarities = []
+        raw_rastr, number_of_ensembles = load_data(enriched_folder + enriched_file_names[fish])
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        number_of_ensembles, number_of_timepoints = np.shape(binary_matrix)
+        for timepoint in range(number_of_timepoints-1):
+            current_state = binary_matrix[:,timepoint]
+            next_state = binary_matrix[:,timepoint+1]
+
+            if str(current_state) == str(next_state):
+                pass
+            else:
+                transition_similarity = get_simmilarity_between_states(current_state,next_state)
+                transition_similarities.append(transition_similarity)
+
+        en_data_transition_similarities.append(np.mean(transition_similarities))
+
+        permuted_transition_similarities = []
+        for permutation in range(number_of_circular_permutations):
+            permuted_matrix = matts_matrix_functions.circularly_permute(binary_matrix)
+            for timepoint in range(number_of_timepoints - 1):
+                current_state = permuted_matrix[:, timepoint]
+                next_state = permuted_matrix[:, timepoint + 1]
+
+                if str(current_state) == str(next_state):
+                    pass
+                else:
+                    transition_similarity = get_simmilarity_between_states(current_state, next_state)
+                    permuted_transition_similarities.append(transition_similarity)
+
+            en_null_transition_similarities.append(np.mean(permuted_transition_similarities))
+
+    plot_swarmplot([wt_data_transition_similarities,wt_null_transition_similarities,en_data_transition_similarities,en_null_transition_similarities])
+    test_significiance(wt_data_transition_similarities,wt_null_transition_similarities,en_data_transition_similarities,en_null_transition_similarities)
+
+
+def create_transition_graphs():
+    print "Creating Transition Graphs"
+
+
+    # ploting Wildtype Fish
+    for fish in range(0):
+        print "Fish:", str(fish)
+        raw_rastr, number_of_ensembles = load_data(folder + file_names[fish])
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        unique_states_dict = get_states(binary_matrix)
+        transition_matrix = create_transition_matrix(unique_states_dict.keys(),binary_matrix)
+        transition_graph = matts_network_functions.create_graph(transition_matrix)
+        edge_weights = matts_network_functions.get_edge_weights(transition_graph, 1)
+        colour_map = cm.get_cmap("plasma")
+        node_colours = matts_network_functions.louvain_partition_graph(transition_graph)
+        nx.draw(transition_graph,
+                pos=nx.spring_layout(transition_graph),
+                node_size=40,
+                arrows=False,
+                with_labels=False,
+                edge_color=edge_weights,
+                edge_cmap=colour_map,
+                node_color=node_colours)
+        plt.show()
+
+
+    # ploting Wildtype Fish
+    for fish in range(number_of_enriched_fish):
+        print "Enriched Fish:", str(fish)
+        raw_rastr, number_of_ensembles = load_data(enriched_folder + enriched_file_names[fish])
+        binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        unique_states_dict = get_states(binary_matrix)
+        transition_matrix = create_transition_matrix(unique_states_dict.keys(), binary_matrix)
+        transition_graph = matts_network_functions.create_graph(transition_matrix)
+        edge_weights = matts_network_functions.get_edge_weights(transition_graph, 1)
+        colour_map = cm.get_cmap("plasma")
+        node_colours = matts_network_functions.louvain_partition_graph(transition_graph)
+        nx.draw(transition_graph,
+                    pos=nx.spring_layout(transition_graph),
+                    node_size=40,
+                    arrows=False,
+                    with_labels=False,
+                    edge_color=edge_weights,
+                    edge_cmap=colour_map,
+                    node_color=node_colours)
+        plt.show()
+
+
+
+def create_correlation_matrix_from_raster(raster):
+
+    ensembles, timepoints = np.shape(raster)
+    correlation_matrix = matts_matrix_functions.create_zero_array(ensembles)
+
+    for ensemble_1 in range(ensembles):
+        for ensemble_2 in range(ensembles):
+
+            #print raster[ensemble_1]
+            #print raster[ensemble_2]
+            #correlation, p = stats.pearsonr(raster[ensemble_1], raster[ensemble_2])
+            #print correlation
+
+            try:
+                correlation, p = stats.pearsonr(raster[ensemble_1],raster[ensemble_2])
+            except:
+                p = 1
+
+            if p < 0.05:
+                correlation_matrix[ensemble_1][ensemble_2] = correlation
+
+    return correlation_matrix
+
+
+def create_ensemble_correlation_graphs():
+
+    for fish in range(number_of_enriched_fish):
+        print "Fish:", str(fish)
+        raw_rastr, number_of_ensembles = load_data(enriched_folder + enriched_file_names[fish])
+        #binary_matrix = binarise_matrix(raw_rastr, activation_threshold)
+        correlation_matrix = create_correlation_matrix_from_raster(raw_rastr)
+        correlation_graph = matts_network_functions.create_graph(correlation_matrix)
+
+        edge_weights = matts_network_functions.get_edge_weights(correlation_graph, 1)
+        colour_map = cm.get_cmap("coolwarm")
+        node_colours = matts_network_functions.louvain_partition_graph(correlation_graph)
+        nx.draw(correlation_graph,
+                pos=nx.spring_layout(correlation_graph),
+                node_size=40,
+                arrows=False,
+                with_labels=False,
+                edge_color=edge_weights,
+                edge_cmap=colour_map,
+                node_color=node_colours)
+        plt.show()
+
+
+
+if __name__ == '__main__':
+
+    # analyse_number_of_ensembles()
+    # analyse_total_activity()
+    # analyse_total_silence()
+
+    # analyse_number_of_states()
+    # analyse_size_of_states()
+    # analyse_number_of_transitions()
+    # analyse_state_similarities()
+    # analyse_transition_similarities()
+
+    #create_transition_graphs()
+    create_ensemble_correlation_graphs()
+
+    #analyse_similarity_transition_correlation()
+
+    #analyse_number_of_ensembles_active_over_time()
+    #analyse_rate_of_new_state_formation()
+
+
+    #visualise_transitions(2)
+    #display_tsne_plot(0)
+    #analyse_state_frequencies()
+
