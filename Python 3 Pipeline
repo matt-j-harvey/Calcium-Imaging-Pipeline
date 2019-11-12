@@ -1,36 +1,35 @@
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import pyqtSignal, Qt
+
 import sys
 import numpy as np
 import random
-import networkx as nx
-import community
-import matplotlib.pyplot as plt
 import pandas as pd
+from os import listdir
+from scipy import stats, fftpack
+from skimage import io
+from math import log, pi, sqrt
+
+import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib import cm
-import matplotlib.pyplot as plt
 from matplotlib.path import Path
 from matplotlib.widgets import LassoSelector
-import numpy as np
-from skimage.data import coins
-from os import listdir
-from scipy import stats
-from skimage import io
 
 
 #I Dont Care What Anyone Says I Like Global Variables
 wdt = 0.1
-lamb = 0.5
+lamb = 0.6
 varB = 0.013  # 0.01
-varC = 1
-initial_baseline = 0
+varC = 2 #1
 Cmean = 0
 frequency = 2.7
 fourier_cutoff = 8500
+initial_baseline = 0
+
 
 window_radius = 10
 image_radius = 25
@@ -41,6 +40,29 @@ cell_probability_threshold = 0.8
 
 
 # Load Data Functions
+def create_empty_list(size):
+    new_list = []
+    for i in range(size):
+        new_list.append([])
+
+    return new_list
+
+def create_empty_array(size):
+    new_array = create_empty_list(size)
+
+    for row in range(size):
+        columns = create_empty_list(size)
+        new_array[row] = columns
+
+    return new_array
+
+def create_list_of_item(size, item):
+    new_list = []
+    for i in range(size):
+        new_list.append(item)
+
+    return new_list
+
 def setup_variables():
     global neuron_coordinates
     global neuron_decisions
@@ -96,7 +118,7 @@ def setup_variables():
             calcium_traces[plane].append([])
             baseline_traces[plane].append([])
             fourier_traces[plane].append([])
-            neuron_locations[plane].append(0)
+            neuron_locations[plane].append("Tectum")
 
     populate_trace_combobox()
 
@@ -183,7 +205,8 @@ def load_flourescence_traces():
     number_of_timepoints = len(flourescence_traces[plane][0])
 
 def load_cell_trace_tiff_file(plane,file_number):
-    file_name = str(folder_location + r"\\plane" + str(plane) + r"\\reg_tif\\file_chan" + str(file_number) + ".tif")
+    print("File Number: ", file_number)
+    file_name = str(folder_location + r"\\plane" + str(plane) + r"\\reg_tif\\file" + str(file_number).zfill(3) + "_chan0.tif")
     image = io.imread(file_name)
     return image
 
@@ -197,7 +220,7 @@ def get_neuron_numbers():
     for plane in range(number_of_planes):
         stats_file_location = str(folder_location + str(r"\plane" + str(plane)) + "\stat.npy")
         stats = np.load(stats_file_location)
-        plane_seize = len(stats)
+        plane_size = len(stats)
         number_of_neurons.append(plane_size)
 
 def calculate_number_of_cells():
@@ -258,6 +281,14 @@ def threshold_cell_noises():
     threshold_cells()
     draw_all_roi_scenes()
 
+def threshold_cells():
+    global neuron_decisions
+    for plane in range(number_of_planes):
+        for cell in range(len(neuron_decisions[plane])):
+            if cell_probability_decisions[plane][cell] and within_region_decisions[plane][cell] and cell_noise_decisions[plane][cell]:
+                neuron_decisions[plane][cell] = True
+            else:
+                neuron_decisions[plane][cell] = False
 
 
 
@@ -281,6 +312,60 @@ def create_lassos():
         lassos[plane] = LassoSelector(axis[0], lasso_functions[plane])
 
     return lassos
+
+def create_lasso_functions():
+
+    plane_functions = create_empty_list(number_of_planes)
+
+    for plane in range(number_of_planes):
+        plane_functions[plane] = create_plane_function(plane)
+
+    return plane_functions
+
+def draw_roi_scene(plane):
+    scene = QGraphicsScene()
+    scale_factor = 3
+
+    roi_size = 10
+    roi_elipses = create_empty_list(len(neuron_coordinates[plane]))
+
+    y_offset = -50
+    x_offset = -50
+
+    for roi_index in range(len(neuron_coordinates[plane])):
+
+        x_cord = neuron_coordinates[plane][roi_index][1]
+        y_cord = neuron_coordinates[plane][roi_index][0]
+
+        probability = cell_probabilities[plane][roi_index]
+
+        #Determine Colour
+        if neuron_locations[plane][roi_index] == 0:
+            colour = get_colour(probability,"hot",0.8)
+
+        elif neuron_locations[plane][roi_index] == "Forebrain":
+            colour = get_colour(probability, "Blues", 0.8)
+
+        elif neuron_locations[plane][roi_index] == "Tectum":
+            colour = get_colour(probability, "Purples", 0.8)
+
+        elif neuron_locations[plane][roi_index] == "Midbrain":
+            colour = get_colour(probability, "Greens", 0.8)
+
+        elif neuron_locations[plane][roi_index] == "Hindbrain":
+            colour = get_colour(probability, "Reds", 0.8)
+
+        roi_elipses[roi_index] = QGraphicsEllipseItem((x_cord + x_offset), (y_cord + y_offset), roi_size, roi_size)
+        roi_elipses[roi_index].setBrush(QBrush(colour))
+        roi_elipses[roi_index].setPos(x_cord / scale_factor, y_cord / scale_factor)
+
+        if neuron_decisions[plane][roi_index] == False:
+            roi_elipses[roi_index].setOpacity(0.2)
+
+        scene.addItem(roi_elipses[roi_index])
+
+
+    main.roi_displays[plane].setScene(scene)
 
 def draw_all_roi_scenes():
     for plane in range(number_of_planes):
@@ -315,11 +400,24 @@ def plot_flouresence_traces(plane,cell_from,cell_to):
     for cell in range(cell_from,cell_to):
         if neuron_decisions[plane][cell] == True:
 
-            cell_trace_figures[plane][cell],cell_trace_canvases[plane][cell],widget = create_canvas_widget(1200,400)
-            f_trace = flourescence_traces[plane][cell]
-            spike_trace = np.multiply(spike_matricies[plane][cell], np.max(f_trace))
-            plot_trace_graph([f_trace,spike_trace],cell_trace_figures[plane][cell],cell_trace_canvases[plane][cell],"Neuron: " + str(cell),plane,cell)
+            #Create Canvas Widget
+            cell_trace_figures[plane][cell],cell_trace_canvases[plane][cell],widget = create_canvas_widget(20000,400)
 
+
+            #Load and Scale Traces
+            f_trace         = flourescence_traces[plane][cell]
+            max_f = np.max(f_trace)
+            mean_f = np.mean(f_trace)
+
+            spike_trace     = np.multiply(spike_matricies[plane][cell], max_f)
+            calcium_trace   = np.multiply(calcium_traces[plane][cell],  mean_f)
+            baseline_trace  = np.multiply(baseline_traces[plane][cell], mean_f)
+            fourier_trace   = np.multiply(fourier_traces[plane][cell], mean_f)
+
+            #Plot Traces On Canvas
+            plot_trace_graph([spike_trace,f_trace,baseline_trace,calcium_trace,fourier_trace],cell_trace_figures[plane][cell],cell_trace_canvases[plane][cell],"Neuron: " + str(cell),plane,cell)
+
+            #Create Radio Buttons
             flourescence_radiobuttons.append(QRadioButton(str(cell)))
             radio_function = create_radio_function(cell)
             radial_functions.append(radio_function)
@@ -381,8 +479,7 @@ def create_radio_function(cell):
         current_cell_outline_x_coords = current_cell_outline_x_coords - current_cell_median[1] + image_radius
         current_cell_outline_y_coords = current_cell_outline_y_coords - current_cell_median[0] + image_radius
 
-        file_number = cell_trace_timepoint/200
-        file_number = str(file_number).zfill(3)
+        file_number = int(cell_trace_timepoint/500)
 
         current_cell_trace_file = load_cell_trace_tiff_file(plane,file_number)
         update_cell_trace_tiff_index(current_cell_trace_file,neuron_coordinates[plane][cell])
@@ -408,32 +505,120 @@ def update_cell_trace_tiff_index(image, coordinates):
     global cell_trace_canvases
     global position_indicator_axes
 
-    tiff_index = cell_trace_timepoint % 200
+    tiff_index = cell_trace_timepoint % 500
 
     window_open = tiff_index - window_radius
     if window_open < 0:
         window_open = 0
 
     window_close = tiff_index + window_radius
-    if window_close >= 200:
-        window_close = 199
+    if window_close >= 500:
+        window_close = 499
 
     image_matrix = image[window_open:window_close]
     image_matrix = np.array(image_matrix)
     image_matrix = np.mean(image_matrix, axis=0)
-    image_matrix = matts_matrix_functions.extract_matrix_region_around_point(image_matrix, coordinates, image_radius)
+    image_matrix = extract_matrix_region_around_point(image_matrix, coordinates, image_radius)
     image_matrix = np.true_divide(image_matrix, 1000)
-    image_matrix = matts_matrix_functions.convert_matrix_to_tuple(image_matrix)
-    outline = matts_matrix_functions.get_outline_of_region(image_matrix, current_cell_outline_x_coords,current_cell_outline_y_coords)
+    image_matrix = convert_matrix_to_tuple(image_matrix)
+    outline = get_outline_of_region(image_matrix, current_cell_outline_x_coords,current_cell_outline_y_coords)
 
     if spike_matricies[current_cell_trace_plane][current_cell_trace_cell][cell_trace_timepoint] == 1:
         colour = (0, 1, 0)
     else:
         colour = (1, 0, 0)
 
-    image_matrix = matts_matrix_functions.highlight_region(image_matrix, outline, colour)
+    image_matrix = highlight_region(image_matrix, outline, colour)
 
     display_colour_image(main.traces_cell_figure, main.traces_cell_canvas, image_matrix)
+
+def extract_matrix_region_around_point(matrix,centre_point,radius):
+
+    rows, columns = np.shape(matrix)
+
+    left_border     = int(centre_point[1] - radius)
+    right_border    = int((centre_point[1] + radius) + 1)
+    top_border      = int(centre_point[0] - radius)
+    bottom_border   = int((centre_point[0] + radius) + 1)
+
+    if top_border < 0:
+        top_border = 0
+
+    if left_border < 0:
+        left_border = 0
+
+    if bottom_border > rows:
+        bottom_border = rows
+
+    if right_border > columns:
+        right_border = columns
+
+    new_matrix = []
+
+    for row in range(top_border,bottom_border):
+       new_matrix.append(matrix[row][left_border:right_border])
+
+    new_matrix = np.array(new_matrix)
+    return new_matrix
+
+
+def convert_matrix_to_tuple(matrix):
+    matrix_size, matrix_size_2 = np.shape(matrix)
+    new_matrix = create_empty_array(matrix_size)
+
+    for row in range(matrix_size):
+        for column in range(matrix_size):
+                new_matrix[row][column] = (matrix[row][column], matrix[row][column], matrix[row][column])
+
+    return new_matrix
+
+def get_outline_of_region(matrix, x_points, y_points):
+    outline_points = []
+    height, width = len(matrix), len(matrix[0])
+
+    #Create A List Of Region Points
+    region_points = []
+    for index in range(len(x_points)):
+        coordinate_pair = (y_points[index],x_points[index])
+        region_points.append(coordinate_pair)
+
+    for point in (region_points):
+        surronding_points = get_surrounding_points(point)
+
+        for surrounding_point in surronding_points:
+
+            if surrounding_point in region_points:
+                pass
+            else:
+                #if surrounding_point[0] < height and surrounding_point[0] >= 0:
+                    #if surrounding_point[1] < width and surrounding_point[1] >= 0:
+                 outline_points.append(surrounding_point)
+
+
+    outline_points = set(outline_points)
+    outline_points = list(outline_points)
+
+    return outline_points
+
+def get_surrounding_points(point):
+
+    upper_left     = (point[0] - 1, point[1] - 1)
+    upper_middle   = (point[0] - 1, point[1] + 0)
+    upper_right    = (point[0] - 1, point[1] + 1)
+    centre_left    = (point[0] + 0, point[1] - 1)
+    centre_right   = (point[0] + 0, point[1] + 1)
+    lower_left     = (point[0] + 1, point[1] - 1)
+    lower_middle   = (point[0] + 1, point[1] + 0)
+    lower_right    = (point[0] + 1, point[1] + 1)
+
+    return [upper_left, upper_middle, upper_right, centre_left, centre_right, lower_left, lower_middle, lower_right]
+
+def highlight_region(matrix,region,colour):
+
+    for point in region:
+        matrix[int(point[0])][int(point[1])] = colour
+
+    return matrix
 
 def get_colour(input_value, colour_map, scale_factor):
     input_value = input_value * scale_factor
@@ -457,8 +642,8 @@ def create_plane_function(plane):
         selected.flat[ind] = 1
 
         for neuron in range(len(neuron_decisions[plane])):
-            x_cord = int(neuron_coordinates[plane][neuron][1])
-            y_cord = int(neuron_coordinates[plane][neuron][0])
+            y_cord = int(neuron_coordinates[plane][neuron][1])
+            x_cord = int(neuron_coordinates[plane][neuron][0])
 
             if selected[x_cord][y_cord] == 1:
                 within_region_decisions[plane][neuron] = True
@@ -473,6 +658,102 @@ def create_plane_function(plane):
 
 
 # Spike Extraction Functions
+def average_trace(trace,window):
+    average_trace = []
+
+    for timepoint in range(len(trace)):
+
+        if timepoint + window == len(trace):
+            upper_bound = (len(trace) - timepoint)
+        else:
+            upper_bound = window
+
+        average = np.mean(trace[timepoint : timepoint+upper_bound])
+        average_trace.append(average)
+
+    return average_trace
+
+def diff(timeseries):
+    diff_timeseries = []
+    for index in range(1,len(timeseries)):
+        difference = timeseries[index] - timeseries[index - 1]
+        diff_timeseries.append(difference)
+
+    return diff_timeseries
+
+def lowpass_filter(trace,frequency_cutoff):
+    fast_fourier_transform = fftpack.fft(trace)                                 # Take The Fourier Transform Of The Trace
+    fast_fourier_transform[frequency_cutoff+2:(len(fast_fourier_transform)-frequency_cutoff)] = 0    # Remove All Components Whos Frequency Is Greater Than The Cuttoff Frequency
+    filtered_signal = fftpack.ifft(fast_fourier_transform)                      # Run The Inverse Fourier Transform To Get Back To A Signal
+    real_filtered_signal = np.real(filtered_signal)
+    return real_filtered_signal
+
+def get_variance_of_the_decreases(trace):
+    number_of_decreases = 0
+    sqaured_sum_of_decreases = 0
+
+    for timepoint in trace:
+        if timepoint < 0:
+            number_of_decreases += 1
+            sqaured_sum_of_decreases += (timepoint ** 2)
+
+    variance = sqaured_sum_of_decreases / number_of_decreases
+    variance = sqrt(variance)
+    return variance
+
+def bcl_function_parameters(trace, wdt, lamb, varB, varC, Cmean, frequency, fourier_cutoff):
+
+    # BCL Parameters
+    """
+    wdt = 0.1
+    lamb = 0.6
+    varB = 2e-2
+    varC = 2
+    initial_baseline = 1
+    Cmean = 0
+    frequency = 2.7
+    """
+
+    #Preprocess Function
+    t1 = trace / np.mean(trace)
+    y = lowpass_filter(t1, 500) #2000 too high, #200 too low
+    difft = diff(y)
+    varX = get_variance_of_the_decreases(difft)
+
+    #Declare Variables
+    N = len(y)
+    B = create_empty_list(N)
+    c = create_list_of_item(N, 0)
+    sks = create_list_of_item(N, 0)
+    B[0] = np.mean(y[0:100])
+    loglik = 0
+    dt = float(1) / frequency
+
+    for t in range(1,N):
+        cnew = c[t - 1] * np.exp(-lamb* dt)
+        Bnew = (varX * B[t - 1] + varB * dt * (y[t] - cnew)) / (varX + varB * dt)
+
+        logp0 = log(1 - wdt) - 0.5 * log(2 * pi) - 0.5 * log(varX + varB * dt) - (y[t] - cnew - B[t - 1]) ** 2 / (2 * varX + 2 * varB * dt)
+
+        cspike = Cmean + cnew + (y[t] - cnew - B[t - 1]) / (1 + varB * dt / varC + varX / varC)
+        Bspike = B[t - 1] + varB * dt / varC * (cspike - cnew - Cmean)
+
+        logp1 = log(wdt) - 0.5 * log(2 * pi) - 0.5 * log(varX + varB * dt + varC) - (y[t] - cnew - B[t - 1] - Cmean)**2 / (2 * varX + 2 * varB * dt + 2 * varC)
+
+        if logp1 < logp0:
+            c[t] = cnew
+            B[t] = Bnew
+            loglik = loglik + logp0
+
+        else:
+            c[t] = cspike
+            B[t] = Bspike
+            sks[t] = 1
+            loglik = loglik + logp1
+
+    return c,B,sks, difft
+
+
 def extract_spikes():
     global spike_matricies
     global calcium_traces
@@ -480,15 +761,12 @@ def extract_spikes():
 
     counter = 0
     for plane in range(number_of_planes):
-        print("plane")
+        print("plane: " + str(plane))
         for neuron in range(len(neuron_decisions[plane])):
             if neuron_decisions[plane][neuron] == True:
-                print(counter)
+                print("Cell: " + str(counter))
                 average_f_trace = average_trace(flourescence_traces[plane][neuron], 4)
-                calcium_signal, baseline_signal, spikes, fourier = bcl_function_parameters(average_f_trace, wdt, lamb,
-                                                                                           varB, varC, initial_baseline,
-                                                                                           Cmean, frequency,
-                                                                                           fourier_cutoff)
+                calcium_signal, baseline_signal, spikes, fourier = bcl_function_parameters(average_f_trace, wdt, lamb, varB, varC, Cmean, frequency, fourier_cutoff)
                 spike_matricies[plane][neuron] = spikes
                 calcium_traces[plane][neuron] = calcium_signal
                 baseline_traces[plane][neuron] = baseline_signal
@@ -516,7 +794,6 @@ def save_traces():
             if neuron_decisions[plane][cell] == True:
 
                 location = neuron_locations[plane][cell]
-                print("Location", location)
 
                 if location == "Forebrain":
                     forebrain_traces.append(spike_matricies[plane][cell])
@@ -602,10 +879,10 @@ class Window(QWidget):
 
         # Cell Probability Q-Slider
         self.probabiltiy_slider = QSlider(Qt.Horizontal)
-        # self.probabiltiy_slider.valueChanged.connect(self.threshold_slider_value_changed)
-        self.probabiltiy_slider.setValue(cell_probability_threshold * 100)
+        self.probabiltiy_slider.valueChanged.connect(self.threshold_slider_value_changed)
         self.probabiltiy_slider_label = QLabel("Cell Probability Threshold")
         self.probabiltiy_slider_value_label = QLabel(str(cell_probability_threshold))
+        self.probabiltiy_slider.setValue(cell_probability_threshold * 100)
 
         self.probability_threshold_button = QPushButton("Threshold Cell Probability")
         self.probability_threshold_button.clicked.connect(threshold_cell_probability)
@@ -742,7 +1019,7 @@ class Window(QWidget):
         self.traces_cell_canvas_label = QLabel("Registered Tiff")
 
         self.traces_cell_slider = QSlider(Qt.Horizontal)
-        # self.traces_cell_slider.valueChanged.connect(self.cell_trace_slider_changed)
+        self.traces_cell_slider.valueChanged.connect(self.cell_trace_slider_changed)
         self.traces_cell_slider_label = QLabel("0")
         self.traces_cell_slider.setFixedWidth(400)
 
@@ -821,6 +1098,11 @@ class Window(QWidget):
         global number_of_planes
         number_of_planes = self.number_of_planes_spinner.value()
 
+    def threshold_slider_value_changed(self):
+        global cell_probability_threshold
+        cell_probability_threshold = float(self.probabiltiy_slider.value()) / 100
+        self.probabiltiy_slider_value_label.setText(str(cell_probability_threshold))
+
     def parameters_changed(self):
         global wdt
         global lamb
@@ -848,7 +1130,8 @@ class Window(QWidget):
 
     def trace_combo_box_changed(self):
         selected_plane = main.traces_combox_box.currentIndex()
-        max = len(flourescence_traces[selected_plane])
+        #max = len(flourescence_traces[selected_plane])
+        max = 17000
 
         main.neuron_end_spinner.setMaximum(max)
         main.neuron_start_spinner.setMaximum(max)
@@ -877,6 +1160,68 @@ class Window(QWidget):
         cell_noise_threshold = main.minimum_value_input.value()
         threshold_cell_noises()
 
+    def cell_trace_slider_changed(self):
+        global cell_trace_timepoint
+        global current_cell_trace_file
+        global current_cell_trace_cell
+
+        plane = main.traces_combox_box.currentIndex()
+
+        current_file_number = cell_trace_timepoint / 500
+
+        cell_trace_timepoint = self.traces_cell_slider.value()
+        self.traces_cell_slider_label.setText(str(cell_trace_timepoint))
+
+        new_file_number = int(cell_trace_timepoint / 500)
+
+        coordinates = neuron_coordinates[plane][current_cell_trace_cell]
+
+        # If we're still in the same file, just update the index
+        if new_file_number == current_file_number:
+            update_cell_trace_tiff_index(current_cell_trace_file, coordinates)
+
+        else:
+            new_file_number = new_file_number
+            current_cell_trace_file = load_cell_trace_tiff_file(plane, new_file_number)
+            update_cell_trace_tiff_index(current_cell_trace_file, coordinates)
+
+    def populate_region_selection_tab(self):
+        self.region_figures = create_empty_list(number_of_planes)
+        self.region_canvases = create_empty_list(number_of_planes)
+        self.region_widgets = create_empty_list(number_of_planes)
+        self.roi_displays = create_empty_list(number_of_planes)
+        global region_combo_boxes
+
+        for plane in range(number_of_planes):
+            figure, canvas, widget = create_canvas_widget(400, 400)
+            self.region_figures[plane] = figure
+            self.region_canvases[plane] = canvas
+            self.region_widgets[plane] = widget
+
+            self.roi_displays[plane] = QGraphicsView()
+            self.roi_displays[plane].setMinimumWidth(500)
+            region_combo_boxes[plane] = QComboBox()
+
+            region_combo_boxes[plane].addItem("Tectum")
+            region_combo_boxes[plane].addItem("Forebrain")
+            region_combo_boxes[plane].addItem("Midbrain")
+            region_combo_boxes[plane].addItem("Hindbrain")
+
+            combo_box_function = self.create_region_combo_box_function(plane)
+            region_combo_boxes[plane].currentIndexChanged.connect(combo_box_function)
+
+            self.region_selection_scroll_area_contents_layout.addWidget(region_combo_boxes[plane], plane, 0)
+            self.region_selection_scroll_area_contents_layout.addWidget(self.region_widgets[plane], plane, 1)
+            self.region_selection_scroll_area_contents_layout.addWidget(self.roi_displays[plane], plane, 2)
+
+    def create_region_combo_box_function(self,plane):
+
+        def combo_box_function():
+            global currently_selected_region
+            region = str(region_combo_boxes[plane].currentText())
+            currently_selected_region[plane] = region
+
+        return combo_box_function
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
