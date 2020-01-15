@@ -1,0 +1,28 @@
+import numpy as np
+
+
+def delta_f_over_f_moving_window(trace):
+    delta_f_trace = []
+    trace_length = len(trace)
+
+    for timepoint in range(trace_length):
+
+        #Determine window size
+        proposed_window_size = 50
+
+        if timepoint + proposed_window_size < trace_length:
+            actual_window_size = proposed_window_size
+        else:
+            actual_window_size = (trace_length - timepoint) -1
+
+        #Get Window Baseline
+        window = trace[timepoint:timepoint + actual_window_size]
+        if min(window) < 0:
+            window = np.add(window, abs(min(window)))
+        baseline = np.percentile(window, 5)
+
+        value = trace[timepoint]
+        delta_f = (value - baseline) / baseline
+        delta_f_trace.append(delta_f)
+
+    return delta_f_trace
