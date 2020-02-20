@@ -1,0 +1,96 @@
+from PyQt4.QtCore import *
+from PyQt4.QtGui import *
+import sys
+import numpy as np
+import random
+import networkx as nx
+import community
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib import cm
+import matplotlib.pyplot as plt
+from matplotlib.path import Path
+from matplotlib.widgets import LassoSelector
+import numpy as np
+from skimage.data import coins
+from os import listdir
+from scipy import stats
+from skimage import io
+
+sys.path.append(r"C:\Users\matth\OneDrive\Documents\Python Code\Matts Modules")
+import matts_admin_functions
+import matts_network_functions
+import matts_matrix_functions
+
+window = 50
+certainty_threshold = 0.99
+
+def extract_ensembles(trajectory_file, selection_file,number_of_neurons):
+
+    allocation_matrix = np.loadtxt(trajectory_file, dtype=int)
+    #selection_list = np.loadtxt(selection_file,dtype=int)
+    selection_list = np.genfromtxt(selection_file,     delimiter=",",  dtype="int")
+    iterations, neurons = np.shape(allocation_matrix)
+
+    #Get Raw Allocation
+    raw_ensemble_allocations    = matts_admin_functions.create_list_of_item(number_of_neurons,"NA")
+    certainty                   = matts_admin_functions.create_list_of_zeros(number_of_neurons)
+
+    print "len selection list", len(selection_list)
+
+    for neuron_index in range(len(selection_list)):
+        neuron = selection_list[neuron_index]
+        allocations = allocation_matrix[:,neuron_index]
+        last_winodw = allocations[(iterations-window):iterations]
+        ensemble, count = stats.mode(last_winodw)
+
+        ensemble = int(ensemble)
+        count = float(count)
+
+        raw_ensemble_allocations[neuron] = ensemble
+        certainty[neuron] = count / window
+
+    #Threshold Allocations By Certainty
+    number_of_allocated_neurons = 0
+    thresholded_allocations = []
+
+    for neuron in range(number_of_neurons):
+        if certainty[neuron] > certainty_threshold:
+            thresholded_allocations.append(raw_ensemble_allocations[neuron])
+            number_of_allocated_neurons += 1
+        else:
+            thresholded_allocations.append("NA")
+
+    unique_ensembles, ensemble_sizes = np.unique(thresholded_allocations, return_counts=True)
+    number_of_ensembles = len(unique_ensembles)
+
+    print "unique ensembles", unique_ensembles
+    print "ensemble sizes", ensemble_sizes
+
+    number_size_dict = dict(zip(unique_ensembles,ensemble_sizes))
+
+    ensemble_data = {
+        "thresholded allocations"       :   thresholded_allocations,
+        "number_of_ensembles"           :   number_of_ensembles,
+        "ensemble sizes"                :   ensemble_sizes,
+        "number of allocated neurons"   :   number_of_allocated_neurons,
+        "ensemble number and sizes"     :   number_size_dict
+    }
+
+    return ensemble_data
+
+
+
+"""
+ensembled_data = extract_ensembles(matts_data,matts_selection,848)
+print "number of ensembles", ensembled_data["number_of_ensembles"]
+print "ensemble sizes", ensembled_data["ensemble sizes"]
+print "number of allocated neurons", ensembled_data["number of allocated neurons"]
+print "thresholded allocations", ensembled_data["thresholded allocations"]
+"""
+#neuron_coordinates  = np.load(r"F:\bayes_190313_wt_F2\190313_wtp_F2_bln_com_coord.npy")
+#print neuron_coordinates
